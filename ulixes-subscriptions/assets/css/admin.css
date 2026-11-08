@@ -1,0 +1,50 @@
+/**
+ * Ulixes Subscriptions - Admin Styles
+ */
+.order-status.status-active {
+	background: #c6e1c6;
+	color: #5b841b;
+}
+
+.order-status.status-pending-cancel {
+	background: #f8dda7;
+	color: #94660c;
+}
+
+.order-status.status-expired,
+.order-status.status-switched {
+	background: #e5e5e5;
+	color: #777;
+}
+
+.ulx-rel-badge {
+	display: inline-block;
+	padding: 2px 8px;
+	border-radius: 3px;
+	font-size: 11px;
+	font-weight: 600;
+	background: #f0f0f1;
+	color: #2c3338;
+}
+
+.ulx-rel-parent {
+	background: #dff0d8;
+	color: #3c763d;
+}
+
+.ulx-rel-renewal {
+	background: #d9edf7;
+	color: #31708f;
+}
+
+.ulx-rel-switch,
+.ulx-rel-resubscribe {
+	background: #fcf8e3;
+	color: #8a6d3b;
+}
+
+.subscription_pricing ._subscription_price_field .wrap select,
+.subscription_pricing ._subscription_price_field .wrap input {
+	margin-right: 6px;
+}
+
