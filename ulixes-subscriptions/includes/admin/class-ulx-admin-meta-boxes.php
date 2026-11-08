@@ -80,9 +80,15 @@ class ULX_Admin_Meta_Boxes {
 		if ( 19800 === $seconds ) {
 			return 'Asia/Calcutta';
 		}
-		$abbr_name = timezone_name_from_abbr( '', $seconds, 0 );
-		if ( ! empty( $abbr_name ) ) {
-			return $abbr_name;
+		if ( 0 !== $seconds ) {
+			$abbr_name = timezone_name_from_abbr( '', $seconds, 0 );
+			if ( ! empty( $abbr_name ) ) {
+				return $abbr_name;
+			}
+		}
+		$wc_country = (string) get_option( 'woocommerce_default_country', '' );
+		if ( 0 === strpos( $wc_country, 'IN' ) ) {
+			return 'Asia/Calcutta';
 		}
 		if ( function_exists( 'wc_timezone_string' ) ) {
 			$wc_tz = wc_timezone_string();

@@ -4,7 +4,8 @@
  * Plugin URI:        https://ulixes.in/
  * Description:       Sell products and services with recurring payments in WooCommerce. Subscription products, free trials, sign-up fees, renewals, retries, switching, synchronisation, emails, reports and REST API.
  * Version:           1.0.0
- * Author:            Ulixes
+ * Author:            Vishnu Kumar Nagar
+ * Author URI:        https://ulixes.in/
  * Text Domain:       ulixes-subscriptions
  * Domain Path:       /languages
  * Requires at least: 6.0
@@ -13,8 +14,10 @@
  * WC requires at least: 7.0
  * WC tested up to:   10.0
  * License:           GPL-3.0-or-later
+ * License URI:       https://www.gnu.org/licenses/gpl-3.0.html
  *
  * @package Ulixes_Subscriptions
+ * @author  Vishnu Kumar Nagar <v4.nagar@gmail.com>
  */
 
 defined( 'ABSPATH' ) || exit;
