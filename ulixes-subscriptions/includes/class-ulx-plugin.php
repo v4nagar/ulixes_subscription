@@ -75,19 +75,27 @@ final class ULX_Plugin {
 		require_once $dir . 'class-ulx-product-hooks.php';
 
 		// Engine.
+		require_once $dir . 'class-ulx-cart-validator.php';
+		require_once $dir . 'class-ulx-zero-initial-payment-checkout-manager.php';
 		require_once $dir . 'class-ulx-cart.php';
 		require_once $dir . 'class-ulx-cart-renewal.php';
 		require_once $dir . 'class-ulx-cart-resubscribe.php';
 		require_once $dir . 'class-ulx-cart-early-renewal.php';
+		require_once $dir . 'class-ulx-early-renewal-manager.php';
 		require_once $dir . 'class-ulx-checkout.php';
 		require_once $dir . 'class-ulx-scheduler.php';
 		require_once $dir . 'class-ulx-manager.php';
 		require_once $dir . 'class-ulx-renewal-order.php';
 		require_once $dir . 'class-ulx-payment-gateways.php';
+		require_once $dir . 'class-ulx-gateway-tokenization.php';
 		require_once $dir . 'class-ulx-change-payment-method.php';
+		require_once $dir . 'class-ulx-retry-table-maker.php';
+		require_once $dir . 'class-ulx-retry-rules.php';
 		require_once $dir . 'class-ulx-retry-manager.php';
 		require_once $dir . 'class-ulx-user-change-status.php';
+		require_once $dir . 'class-ulx-switch-totals-calculator.php';
 		require_once $dir . 'class-ulx-switcher.php';
+		require_once $dir . 'class-ulx-synchronizer.php';
 		require_once $dir . 'class-ulx-sync.php';
 		require_once $dir . 'class-ulx-limiter.php';
 		require_once $dir . 'class-ulx-coupons.php';
@@ -103,6 +111,19 @@ final class ULX_Plugin {
 		require_once $dir . 'api/class-ulx-rest-subscriptions-controller.php';
 		require_once $dir . 'blocks/class-ulx-blocks-integration.php';
 
+		// Caching Layer.
+		require_once $dir . 'cache/class-ulx-post-meta-cache-manager.php';
+		require_once $dir . 'cache/class-ulx-object-data-cache-manager-many-to-one.php';
+
+		// Upgrades & Migration Engine.
+		require_once $dir . 'upgrades/class-ulx-upgrade-logger.php';
+		require_once $dir . 'upgrades/class-ulx-repair-start-date-metadata.php';
+		require_once $dir . 'upgrades/class-ulx-upgrader.php';
+
+		// Deprecation Handlers.
+		require_once $dir . 'deprecated/class-ulx-hook-deprecator.php';
+		require_once $dir . 'deprecated/ulx-deprecated-functions.php';
+
 		if ( is_admin() ) {
 			require_once $dir . 'admin/class-ulx-admin.php';
 			require_once $dir . 'admin/class-ulx-admin-product.php';
@@ -110,6 +131,7 @@ final class ULX_Plugin {
 			require_once $dir . 'admin/class-ulx-admin-list-table.php';
 			require_once $dir . 'admin/class-ulx-admin-meta-boxes.php';
 			require_once $dir . 'admin/class-ulx-admin-reports.php';
+			require_once $dir . 'admin/debug-tools/class-ulx-debug-tool-factory.php';
 		}
 	}
 
@@ -123,19 +145,25 @@ final class ULX_Plugin {
 
 		ULX_Post_Types::init();
 		ULX_Product_Hooks::init();
+		ULX_Cart_Validator::init();
+		ULX_Zero_Initial_Payment_Checkout_Manager::init();
 		ULX_Cart::init();
 		ULX_Cart_Renewal::init();
 		ULX_Cart_Resubscribe::init();
 		ULX_Cart_Early_Renewal::init();
+		ULX_Early_Renewal_Manager::init();
 		ULX_Checkout::init();
 		ULX_Scheduler::init();
 		ULX_Manager::init();
 		ULX_Renewal_Order::init();
 		ULX_Payment_Gateways::init();
+		ULX_Gateway_Tokenization::init();
 		ULX_Change_Payment_Method::init();
+		ULX_Retry_Table_Maker::init();
 		ULX_Retry_Manager::init();
 		ULX_User_Change_Status::init();
 		ULX_Switcher::init();
+		ULX_Synchronizer::init();
 		ULX_Sync::init();
 		ULX_Limiter::init();
 		ULX_Coupons::init();
@@ -150,6 +178,10 @@ final class ULX_Plugin {
 		ULX_Shortcodes::init();
 		ULX_REST_Subscriptions_Controller::init();
 		ULX_Blocks_Integration::init();
+		Ulx_Post_Meta_Cache_Manager::init();
+		Ulx_Object_Data_Cache_Manager_Many_To_One::init();
+		Ulx_Upgrader::init();
+		Ulx_Hook_Deprecator::init();
 
 		if ( is_admin() ) {
 			ULX_Admin::init();
@@ -158,6 +190,7 @@ final class ULX_Plugin {
 			ULX_Admin_List_Table::init();
 			ULX_Admin_Meta_Boxes::init();
 			ULX_Admin_Reports::init();
+			Ulx_Debug_Tool_Factory::init();
 		}
 	}
 

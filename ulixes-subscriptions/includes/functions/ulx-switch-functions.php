@@ -43,6 +43,10 @@ function ulx_can_item_be_switched_by_user( $subscription, $item ) {
 		}
 	}
 
+	if ( 'no' !== ulx_get_option( 'allow_switching_simple', 'yes' ) || ! ulx_option_is_yes( 'multiple_purchase' ) ) {
+		return (bool) apply_filters( 'ulx_can_item_be_switched_by_user', true, $item, $subscription );
+	}
+
 	return (bool) apply_filters( 'ulx_can_item_be_switched_by_user', false, $item, $subscription );
 }
 

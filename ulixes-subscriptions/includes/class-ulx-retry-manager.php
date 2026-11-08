@@ -42,49 +42,12 @@ class ULX_Retry_Manager {
 	}
 
 	/**
-	 * Get the default 5 retry rules (filterable via `ulx_default_retry_rules`).
+	 * Get the default 5 retry rules (filterable via `ulx_default_retry_rules` and `wcs_default_retry_rules`).
 	 *
 	 * @return array
 	 */
 	public static function get_retry_rules() {
-		$rules = array(
-			array(
-				'retry_after_interval'            => 12 * HOUR_IN_SECONDS,
-				'email_template_customer'         => '',
-				'email_template_admin'            => 'ULX_Email_Payment_Retry',
-				'status_to_apply_to_order'        => 'pending',
-				'status_to_apply_to_subscription' => 'on-hold',
-			),
-			array(
-				'retry_after_interval'            => 12 * HOUR_IN_SECONDS,
-				'email_template_customer'         => 'ULX_Email_Customer_Payment_Retry',
-				'email_template_admin'            => 'ULX_Email_Payment_Retry',
-				'status_to_apply_to_order'        => 'pending',
-				'status_to_apply_to_subscription' => 'on-hold',
-			),
-			array(
-				'retry_after_interval'            => 24 * HOUR_IN_SECONDS,
-				'email_template_customer'         => '',
-				'email_template_admin'            => 'ULX_Email_Payment_Retry',
-				'status_to_apply_to_order'        => 'pending',
-				'status_to_apply_to_subscription' => 'on-hold',
-			),
-			array(
-				'retry_after_interval'            => 48 * HOUR_IN_SECONDS,
-				'email_template_customer'         => 'ULX_Email_Customer_Payment_Retry',
-				'email_template_admin'            => 'ULX_Email_Payment_Retry',
-				'status_to_apply_to_order'        => 'pending',
-				'status_to_apply_to_subscription' => 'on-hold',
-			),
-			array(
-				'retry_after_interval'            => 72 * HOUR_IN_SECONDS,
-				'email_template_customer'         => 'ULX_Email_Customer_Payment_Retry',
-				'email_template_admin'            => 'ULX_Email_Payment_Retry',
-				'status_to_apply_to_order'        => 'pending',
-				'status_to_apply_to_subscription' => 'on-hold',
-			),
-		);
-		return apply_filters( 'ulx_default_retry_rules', $rules );
+		return ULX_Retry_Rules::get_rules();
 	}
 
 	/**
@@ -105,6 +68,7 @@ class ULX_Retry_Manager {
 			// All retries exhausted.
 			$subscription->update_dates( array( 'payment_retry' => 0 ) );
 			$subscription->add_order_note( __( 'Maximum payment retries reached for renewal order.', 'ulixes-subscriptions' ) );
+			ULX_Retry_Table_Maker::record_retry( $renewal_order->get_id(), $subscription->get_id(), 'cancelled', '', array( 'exhausted' => true ) );
 			do_action( 'ulx_retry_retries_exhausted', $subscription, $renewal_order );
 			return;
 		}
@@ -120,6 +84,13 @@ class ULX_Retry_Manager {
 			$renewal_order->set_status( $rule['status_to_apply_to_order'] );
 		}
 		$renewal_order->save();
+
+		// Record retry in custom database table.
+		$retry_id = ULX_Retry_Table_Maker::record_retry( $renewal_order->get_id(), $subscription->get_id(), 'pending', $retry_time, $rule );
+		if ( $retry_id ) {
+			$renewal_order->update_meta_data( '_ulx_current_retry_id', $retry_id );
+			$renewal_order->save_meta_data();
+		}
 
 		$subscription->update_dates( array( 'payment_retry' => $retry_date ) );
 		$subscription->add_order_note(
@@ -149,6 +120,11 @@ class ULX_Retry_Manager {
 			$subscription->update_dates( array( 'payment_retry' => 0 ) );
 		}
 
+		$current_retry_id = (int) $renewal_order->get_meta( '_ulx_current_retry_id', true );
+		if ( $current_retry_id > 0 ) {
+			ULX_Retry_Table_Maker::update_status( $current_retry_id, 'processing' );
+		}
+
 		$renewal_order->add_order_note( __( 'Processing scheduled automatic payment retry.', 'ulixes-subscriptions' ) );
 		ULX_Payment_Gateways::trigger_gateway_renewal_payment_hook( $renewal_order );
 	}
@@ -164,7 +140,12 @@ class ULX_Retry_Manager {
 			$subscription->update_dates( array( 'payment_retry' => 0 ) );
 		}
 		if ( $renewal_order ) {
+			$current_retry_id = (int) $renewal_order->get_meta( '_ulx_current_retry_id', true );
+			if ( $current_retry_id > 0 ) {
+				ULX_Retry_Table_Maker::update_status( $current_retry_id, 'completed' );
+			}
 			$renewal_order->delete_meta_data( '_ulx_retry_date' );
+			$renewal_order->delete_meta_data( '_ulx_current_retry_id' );
 			$renewal_order->save_meta_data();
 		}
 	}

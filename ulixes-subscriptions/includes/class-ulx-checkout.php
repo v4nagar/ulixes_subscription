@@ -244,6 +244,54 @@ class ULX_Checkout {
 					$old_sub->update_status( 'cancelled', __( 'Customer resubscribed to a new subscription.', 'ulixes-subscriptions' ) );
 				}
 			}
+
+			if ( ! empty( $cart_item['subscription_switch']['subscription_id'] ) ) {
+				$old_sub_id = absint( $cart_item['subscription_switch']['subscription_id'] );
+				ulx_add_order_subscription_relation( $order, $old_sub_id, 'switch' );
+				$old_sub = ulx_get_subscription( $old_sub_id );
+				if ( $old_sub && ! $old_sub->has_status( ULX_Subscription::get_ended_statuses() ) ) {
+					$old_sub->update_meta_data( '_ulx_switched_to_subscription_id', $subscription->get_id() );
+					$old_sub->save_meta_data();
+					$subscription->update_meta_data( '_ulx_switched_from_subscription_id', $old_sub_id );
+					if ( ( $order->is_paid() || $order->has_status( array( 'processing', 'completed' ) ) ) && $old_sub->can_be_updated_to( 'switched' ) ) {
+						$old_sub->update_status(
+							'switched',
+							sprintf(
+								/* translators: 1: new sub id, 2: order number */
+								__( 'Subscription switched to new subscription #%1$s via order #%2$s.', 'ulixes-subscriptions' ),
+								$subscription->get_order_number(),
+								$order->get_order_number()
+							)
+						);
+					}
+				}
+			}
+		}
+
+		if ( $customer_id > 0 && ! ulx_option_is_yes( 'multiple_purchase' ) ) {
+			$older_subs = ulx_get_users_subscriptions( $customer_id );
+			foreach ( $older_subs as $older_sub ) {
+				if ( (int) $older_sub->get_id() === (int) $subscription->get_id() ) {
+					continue;
+				}
+				if ( $older_sub->has_status( array( 'active', 'on-hold', 'pending' ) ) && ! $older_sub->has_status( ULX_Subscription::get_ended_statuses() ) ) {
+					$older_sub->update_meta_data( '_ulx_switched_to_subscription_id', $subscription->get_id() );
+					$older_sub->save_meta_data();
+					$subscription->update_meta_data( '_ulx_switched_from_subscription_id', $older_sub->get_id() );
+					ulx_add_order_subscription_relation( $order, $older_sub->get_id(), 'switch' );
+					if ( ( $order->is_paid() || $order->has_status( array( 'processing', 'completed' ) ) ) && $older_sub->can_be_updated_to( 'switched' ) ) {
+						$older_sub->update_status(
+							'switched',
+							sprintf(
+								/* translators: 1: new sub id, 2: order number */
+								__( 'Subscription switched to new subscription #%1$s via order #%2$s.', 'ulixes-subscriptions' ),
+								$subscription->get_order_number(),
+								$order->get_order_number()
+							)
+						);
+					}
+				}
+			}
 		}
 
 		$subscription->save();
@@ -376,6 +424,63 @@ class ULX_Checkout {
 			} elseif ( $order->has_status( 'on-hold' ) && $subscription->can_be_updated_to( 'on-hold' ) ) {
 				$subscription->update_status( 'on-hold', __( 'Subscription placed on hold by parent order.', 'ulixes-subscriptions' ) );
 			}
+
+			if ( $customer_id > 0 && ! ulx_option_is_yes( 'multiple_purchase' ) && $subscription->has_status( 'active' ) ) {
+				self::reconcile_superseded_subscriptions_for_customer( $customer_id, $subscription, $order );
+			}
+		}
+	}
+
+	/**
+	 * Reconcile superseded subscriptions for a customer (WCS parity).
+	 * If a customer already has an active or on-hold subscription and gets a new active subscription,
+	 * the older subscription must transition to 'switched' and its renewal schedule must be cancelled.
+	 *
+	 * @param int              $customer_id Customer ID.
+	 * @param ULX_Subscription $active_sub  Newest active subscription.
+	 * @param WC_Order|null    $order       Triggering order.
+	 */
+	public static function reconcile_superseded_subscriptions_for_customer( $customer_id, $active_sub, $order = null ) {
+		if ( ! $customer_id || ! ( $active_sub instanceof ULX_Subscription ) || ulx_option_is_yes( 'multiple_purchase' ) ) {
+			return;
+		}
+
+		$user_subs = ulx_get_users_subscriptions( $customer_id );
+		foreach ( $user_subs as $other_sub ) {
+			if ( ! ( $other_sub instanceof ULX_Subscription ) ) {
+				continue;
+			}
+			if ( (int) $other_sub->get_id() === (int) $active_sub->get_id() ) {
+				continue;
+			}
+			if ( $other_sub->has_status( array( 'active', 'on-hold', 'pending' ) ) && $other_sub->can_be_updated_to( 'switched' ) ) {
+				$other_sub->update_meta_data( '_ulx_switched_to_subscription_id', $active_sub->get_id() );
+				$other_sub->save_meta_data();
+				$active_sub->update_meta_data( '_ulx_switched_from_subscription_id', $other_sub->get_id() );
+				$active_sub->save_meta_data();
+
+				if ( $order ) {
+					ulx_add_order_subscription_relation( $order, $other_sub->get_id(), 'switch' );
+					$note = sprintf(
+						/* translators: 1: new subscription ID, 2: order number */
+						__( 'Subscription switched to new subscription #%1$s via order #%2$s.', 'ulixes-subscriptions' ),
+						$active_sub->get_order_number(),
+						$order->get_order_number()
+					);
+				} else {
+					$note = sprintf(
+						/* translators: %s: new subscription ID */
+						__( 'Subscription switched to new subscription #%s.', 'ulixes-subscriptions' ),
+						$active_sub->get_order_number()
+					);
+				}
+
+				try {
+					$other_sub->update_status( 'switched', $note );
+				} catch ( Exception $e ) {
+					ulx_log( 'Failed to transition superseded subscription #' . $other_sub->get_id() . ' to switched: ' . $e->getMessage(), 'error' );
+				}
+			}
 		}
 	}
 
@@ -390,8 +495,7 @@ class ULX_Checkout {
 	 */
 	protected static function handle_existing_subscription_order( $order, $existing_sub, $product ) {
 		$parent_pid    = $product->get_parent_id() ? $product->get_parent_id() : $product->get_id();
-		$is_variation  = $product->get_parent_id() > 0;
-		$is_switch     = $is_variation && ! $existing_sub->has_product( $product->get_id() );
+		$is_switch     = ! $existing_sub->has_product( $product->get_id() );
 
 		if ( $is_switch ) {
 			$old_item_id = 0;

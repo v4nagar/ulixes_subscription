@@ -74,32 +74,25 @@ if ( ! defined( 'ULX_PLUGIN_BASENAME' ) ) {
 	define( 'ULX_PLUGIN_BASENAME', plugin_basename( __FILE__ ) );
 }
 
-if ( ! function_exists( 'ulx_missing_wc_notice' ) ) {
-	/**
-	 * Admin notice when WooCommerce is missing.
-	 */
-	function ulx_missing_wc_notice() {
-		echo '<div class="notice notice-error"><p>' . esc_html__( 'Ulixes Subscriptions requires WooCommerce to be installed and active.', 'ulixes-subscriptions' ) . '</p></div>';
-	}
-}
+require_once ULX_PLUGIN_DIR . 'includes/class-ulx-dependency-manager.php';
 
 if ( ! function_exists( 'ulx_init_plugin' ) ) {
 	/**
 	 * Boot the plugin once all plugins are loaded.
 	 */
 	function ulx_init_plugin() {
-		if ( ! class_exists( 'WooCommerce' ) ) {
-			add_action( 'admin_notices', 'ulx_missing_wc_notice' );
+		if ( ! ULX_Dependency_Manager::are_dependencies_met() ) {
+			ULX_Dependency_Manager::init_notices();
 			return;
 		}
-		if ( '1.0.4' !== get_option( 'ulx_db_migration_version' ) ) {
+		if ( '1.0.5' !== get_option( 'ulx_db_migration_version' ) ) {
 			update_option( 'ulx_accept_manual_renewals', 'yes' );
 			update_option( 'ulx_allow_switching_variable', 'yes' );
 			update_option( 'ulx_allow_switching_grouped', 'yes' );
 			update_option( 'ulx_enable_early_renewal', 'yes' );
 			update_option( 'ulx_enable_auto_renewal_toggle', 'yes' );
 			delete_option( 'woocommerce_ulx_test_gateway_settings' );
-			update_option( 'ulx_db_migration_version', '1.0.4' );
+			update_option( 'ulx_db_migration_version', '1.0.5' );
 		}
 		require_once ULX_PLUGIN_DIR . 'includes/class-ulx-plugin.php';
 		ULX_Plugin::instance();
@@ -128,6 +121,8 @@ if ( ! function_exists( 'ulx_activate' ) ) {
 	 */
 	function ulx_activate() {
 		update_option( 'ulx_needs_flush', 'yes' );
+		require_once ULX_PLUGIN_DIR . 'includes/class-ulx-retry-table-maker.php';
+		ULX_Retry_Table_Maker::create_table();
 		if ( false === get_option( 'ulx_installed_version' ) ) {
 			add_option( 'ulx_installed_version', ULX_VERSION );
 			add_option( 'ulx_install_date', time() );

@@ -96,6 +96,22 @@ class ULX_Switcher {
 					}
 				}
 			}
+		} elseif ( is_user_logged_in() && ! ulx_option_is_yes( 'multiple_purchase' ) ) {
+			// If customer already has an active subscription and is purchasing another subscription product, treat as plan switch.
+			$user_subs = ulx_get_users_subscriptions( get_current_user_id() );
+			$check_id  = $variation_id > 0 ? $variation_id : $product_id;
+			foreach ( $user_subs as $user_sub ) {
+				if ( $user_sub->has_status( array( 'active', 'on-hold' ) ) && ! $user_sub->has_product( $check_id ) ) {
+					$sub_items = $user_sub->get_items();
+					$first     = reset( $sub_items );
+					if ( $first ) {
+						$subscription  = $user_sub;
+						$existing_item = $first;
+						$item_id       = $first->get_id();
+						break;
+					}
+				}
+			}
 		}
 
 		if ( ! $subscription || ! $existing_item || ! ulx_can_item_be_switched_by_user( $subscription, $existing_item ) ) {
@@ -236,49 +252,12 @@ class ULX_Switcher {
 			}
 			$product = $item['data'];
 
-			// 1. Sign-up fee proration.
-			$apportion_fee = ulx_get_option( 'apportion_sign_up_fee', 'no' );
-			$sign_up_fee   = 0;
-			if ( 'yes' === $apportion_fee ) {
-				$new_fee     = ulx_get_product_sign_up_fee( $product );
-				$old_fee     = (float) $old_item->get_meta( '_ulx_sign_up_fee', true );
-				$sign_up_fee = max( 0, $new_fee - $old_fee );
-			} elseif ( 'full' === $apportion_fee ) {
-				$sign_up_fee = ulx_get_product_sign_up_fee( $product );
-			}
+			$calc = ULX_Switch_Totals_Calculator::calculate_prorated_totals( $subscription, $old_item, $product );
 
-			// 2. Recurring price proration.
-			$apportion_price = ulx_get_option( 'apportion_recurring_price', 'no' );
-			$should_prorate  = ( 'yes' === $apportion_price || 'yes-upgrade' === $apportion_price ) || ( ( 'virtual' === $apportion_price || 'virtual-upgrade' === $apportion_price ) && $product->is_virtual() );
-
-			$true_recurring = (float) ulx_get_product_price( $product );
-			$initial_amount = $true_recurring;
-			if ( $should_prorate ) {
-				$next_payment = $subscription->get_time( 'next_payment' );
-				$last_order   = $subscription->get_last_order( 'all', array( 'parent', 'renewal' ) );
-				$last_time    = $last_order && $last_order->get_date_created() ? $last_order->get_date_created()->getTimestamp() : $subscription->get_time( 'start' );
-
-				$days_in_old_period = max( 1, ulx_days_between( $last_time, $next_payment ) );
-				$days_remaining     = max( 0, ulx_days_between( time(), $next_payment ) );
-
-				$old_daily      = ( (float) $old_item->get_subtotal() / max( 1, $old_item->get_quantity() ) ) / $days_in_old_period;
-				$old_credit     = $old_daily * $days_remaining;
-				$new_period     = ulx_get_product_period( $product );
-				$new_interval   = ulx_get_product_interval( $product );
-				if ( $new_period === $subscription->get_billing_period() && (int) $new_interval === (int) $subscription->get_billing_interval() ) {
-					$new_daily      = self::get_price_per_day( $product );
-					$diff           = ( $new_daily - $old_daily ) * $days_remaining;
-					$initial_amount = $diff > 0 ? ulx_round( $diff ) : 0;
-				} else {
-					$diff           = $initial_amount - $old_credit;
-					$initial_amount = $diff > 0 ? ulx_round( $diff ) : 0;
-				}
-				$product->update_meta_data( '_ulx_prorated_switch_price', $initial_amount );
-			}
-
-			$product->update_meta_data( '_ulx_recurring_base_price', $true_recurring );
-			$product->update_meta_data( '_subscription_sign_up_fee', $sign_up_fee );
-			$product->set_price( $initial_amount );
+			$product->update_meta_data( '_ulx_prorated_switch_price', $calc['prorated_price'] );
+			$product->update_meta_data( '_ulx_recurring_base_price', $calc['full_recurring'] );
+			$product->update_meta_data( '_subscription_sign_up_fee', $calc['sign_up_fee'] );
+			$product->set_price( $calc['prorated_price'] );
 		}
 	}
 

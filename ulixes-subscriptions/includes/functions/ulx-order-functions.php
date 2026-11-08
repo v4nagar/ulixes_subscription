@@ -36,6 +36,10 @@ function ulx_get_related_order_ids( $subscription_id, $relation_type = 'renewal'
 	if ( ! $subscription_id ) {
 		return array();
 	}
+	$pre = apply_filters( 'ulx_pre_get_related_order_ids', null, $subscription_id, $relation_type );
+	if ( null !== $pre && is_array( $pre ) ) {
+		return array_map( 'absint', $pre );
+	}
 	$meta_key = ulx_get_relation_meta_key( $relation_type );
 	$ids      = wc_get_orders(
 		array(
@@ -75,6 +79,7 @@ function ulx_add_order_subscription_relation( $order, $subscription, $relation_t
 	if ( ! $found ) {
 		$order->add_meta_data( $meta_key, $sub_id, false );
 		$order->save_meta_data();
+		do_action( 'ulx_order_subscription_relation_added', $order->get_id(), $sub_id, $relation_type );
 	}
 }
 

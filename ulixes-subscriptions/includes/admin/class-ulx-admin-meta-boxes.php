@@ -28,11 +28,135 @@ class ULX_Admin_Meta_Boxes {
 	public static function init() {
 		add_action( 'add_meta_boxes', array( __CLASS__, 'add_meta_boxes' ), 25 );
 		add_action( 'woocommerce_process_shop_order_meta', array( __CLASS__, 'save_subscription_schedule_meta' ), 55, 2 );
+		add_action( 'woocommerce_process_shop_order_meta', array( __CLASS__, 'lock_ended_subscription_status' ), 1, 2 );
 		add_filter( 'woocommerce_order_actions', array( __CLASS__, 'add_subscription_actions' ), 10, 2 );
+		add_filter( 'wc_order_statuses', array( __CLASS__, 'filter_subscription_order_statuses' ), 20 );
+		add_action( 'admin_footer', array( __CLASS__, 'render_status_lock_script' ) );
 
 		add_action( 'woocommerce_order_action_ulx_process_renewal', array( __CLASS__, 'action_process_renewal' ) );
 		add_action( 'woocommerce_order_action_ulx_create_pending_renewal', array( __CLASS__, 'action_create_pending_renewal' ) );
 		add_action( 'woocommerce_order_action_ulx_retry_renewal_payment', array( __CLASS__, 'action_retry_renewal_payment' ) );
+	}
+
+	/**
+	 * Restrict the Status dropdown on the Subscription edit screen according to valid transition states.
+	 * If the subscription is in a terminal/ended status (Cancelled, Switched, Expired), the dropdown
+	 * cannot be changed back to Active, Pending, or On-hold (WooCommerce Subscriptions parity).
+	 *
+	 * @param array $statuses Order statuses.
+	 * @return array
+	 */
+	public static function filter_subscription_order_statuses( $statuses ) {
+		if ( ! is_admin() ) {
+			return $statuses;
+		}
+
+		$sub_id = 0;
+		if ( isset( $_GET['post'] ) ) { // phpcs:ignore WordPress.Security.NonceVerification
+			$sub_id = absint( $_GET['post'] );
+		} elseif ( isset( $_GET['id'] ) ) { // phpcs:ignore WordPress.Security.NonceVerification
+			$sub_id = absint( $_GET['id'] );
+		}
+
+		if ( ! $sub_id || ! ulx_is_subscription( $sub_id ) ) {
+			return $statuses;
+		}
+
+		$subscription = ulx_get_subscription( $sub_id );
+		if ( ! $subscription ) {
+			return $statuses;
+		}
+
+		$current_status = $subscription->get_status();
+		$ended_statuses = ULX_Subscription::get_ended_statuses();
+
+		// If subscription has ended (Cancelled, Switched, Expired), lock to current status only.
+		if ( in_array( $current_status, $ended_statuses, true ) ) {
+			return array(
+				'wc-' . $current_status => ulx_get_subscription_status_name( $current_status ),
+			);
+		}
+
+		// Otherwise, only permit statuses that can_be_updated_to returns true for, plus current status.
+		$filtered     = array();
+		$sub_statuses = ulx_get_subscription_statuses();
+		foreach ( $sub_statuses as $st_key => $st_name ) {
+			$raw_st = 'wc-' === substr( $st_key, 0, 3 ) ? substr( $st_key, 3 ) : $st_key;
+			if ( $raw_st === $current_status || $subscription->can_be_updated_to( $raw_st ) ) {
+				$filtered[ $st_key ] = $st_name;
+			}
+		}
+
+		return ! empty( $filtered ) ? $filtered : $statuses;
+	}
+
+	/**
+	 * Prevent changing the status of a subscription that is in an ended state (Cancelled, Switched, Expired).
+	 *
+	 * @param int          $post_id Post/Order ID.
+	 * @param WP_Post|null $post    Post object.
+	 */
+	public static function lock_ended_subscription_status( $post_id, $post = null ) {
+		if ( ! ulx_is_subscription( $post_id ) ) {
+			return;
+		}
+		$sub = ulx_get_subscription( $post_id );
+		if ( ! $sub || ! $sub->has_status( ULX_Subscription::get_ended_statuses() ) ) {
+			return;
+		}
+		// Overwrite any submitted status so WooCommerce cannot change it.
+		if ( isset( $_POST['order_status'] ) ) {
+			$_POST['order_status'] = 'wc-' . $sub->get_status();
+		}
+	}
+
+	/**
+	 * Output inline JavaScript on the edit subscription page to visually lock the status dropdown when ended.
+	 */
+	public static function render_status_lock_script() {
+		$screen = function_exists( 'get_current_screen' ) ? get_current_screen() : null;
+		if ( ! $screen ) {
+			return;
+		}
+
+		$is_sub_screen = ( 'shop_subscription' === $screen->id || 'woocommerce_page_wc-orders--shop_subscription' === $screen->id );
+		if ( ! $is_sub_screen ) {
+			return;
+		}
+
+		$sub_id = 0;
+		if ( isset( $_GET['post'] ) ) { // phpcs:ignore WordPress.Security.NonceVerification
+			$sub_id = absint( $_GET['post'] );
+		} elseif ( isset( $_GET['id'] ) ) { // phpcs:ignore WordPress.Security.NonceVerification
+			$sub_id = absint( $_GET['id'] );
+		}
+
+		if ( ! $sub_id || ! ulx_is_subscription( $sub_id ) ) {
+			return;
+		}
+
+		$sub = ulx_get_subscription( $sub_id );
+		if ( ! $sub || ! $sub->has_status( ULX_Subscription::get_ended_statuses() ) ) {
+			return;
+		}
+		?>
+		<script type="text/javascript">
+		jQuery( function( $ ) {
+			var $status = $( '#order_status' );
+			if ( $status.length ) {
+				$status.prop( 'disabled', true );
+				if ( ! $( '#ulx-status-locked-notice' ).length ) {
+					$status.closest( '.form-field' ).append(
+						'<p id="ulx-status-locked-notice" style="margin-top:6px; font-size:12px; color:#c92a2a; font-weight:600;">' +
+						'<span class="dashicons dashicons-lock" style="font-size:14px; vertical-align:middle; line-height:1; margin-right:4px;"></span>' +
+						'<?php echo esc_js( __( 'This subscription has ended and cannot be reactivated or changed.', 'ulixes-subscriptions' ) ); ?>' +
+						'</p>'
+					);
+				}
+			}
+		} );
+		</script>
+		<?php
 	}
 
 	/**

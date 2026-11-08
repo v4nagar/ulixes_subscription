@@ -335,6 +335,45 @@ class ULX_Scheduler {
 				);
 			}
 		}
+
+		// 5. Automatic Switch Reconciliation (WCS parity): If multiple subscriptions per user is disabled, and this user has a newer active subscription, reconcile this older subscription to 'switched'.
+		if ( $sub->has_status( array( 'active', 'on-hold' ) ) && ! ulx_option_is_yes( 'multiple_purchase' ) ) {
+			$customer_id = (int) $sub->get_user_id();
+			if ( $customer_id > 0 ) {
+				$user_subs    = ulx_get_users_subscriptions( $customer_id );
+				$newer_active = null;
+				foreach ( $user_subs as $cand_sub ) {
+					if ( ! ( $cand_sub instanceof ULX_Subscription ) ) {
+						continue;
+					}
+					if ( (int) $cand_sub->get_id() > (int) $sub_id && $cand_sub->has_status( 'active' ) ) {
+						if ( null === $newer_active || (int) $cand_sub->get_id() > (int) $newer_active->get_id() ) {
+							$newer_active = $cand_sub;
+						}
+					}
+				}
+				if ( $newer_active && $sub->can_be_updated_to( 'switched' ) ) {
+					$sub->update_meta_data( '_ulx_switched_to_subscription_id', $newer_active->get_id() );
+					$sub->save_meta_data();
+					$newer_active->update_meta_data( '_ulx_switched_from_subscription_id', $sub_id );
+					$newer_active->save_meta_data();
+					self::unschedule_all_for_subscription( $sub );
+					try {
+						$sub->update_status(
+							'switched',
+							sprintf(
+								/* translators: %s: newer subscription id */
+								__( 'Subscription automatically reconciled: switched to new subscription #%s.', 'ulixes-subscriptions' ),
+								$newer_active->get_order_number()
+							)
+						);
+					} catch ( Exception $e ) {
+						ulx_log( 'Auto-reconcile switch error for sub #' . $sub_id . ': ' . $e->getMessage(), 'error' );
+					}
+					return;
+				}
+			}
+		}
 	}
 
 	/**

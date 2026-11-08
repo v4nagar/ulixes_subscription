@@ -27,10 +27,15 @@ class ULX_Manager {
 		add_action( 'woocommerce_order_status_on-hold', array( __CLASS__, 'put_subscriptions_on_hold_for_order' ), 10, 1 );
 
 		add_action( 'ulx_scheduled_subscription_trial_end', array( __CLASS__, 'trigger_trial_end' ), 10, 1 );
+		add_action( 'woocommerce_scheduled_subscription_trial_end', array( __CLASS__, 'trigger_trial_end' ), 10, 1 );
 		add_action( 'ulx_scheduled_subscription_payment', array( __CLASS__, 'prepare_renewal' ), 1, 1 );
+		add_action( 'woocommerce_scheduled_subscription_payment', array( __CLASS__, 'prepare_renewal' ), 1, 1 );
 		add_action( 'ulx_scheduled_subscription_payment', array( __CLASS__, 'maybe_process_gateway_renewal' ), 10, 1 );
+		add_action( 'woocommerce_scheduled_subscription_payment', array( __CLASS__, 'maybe_process_gateway_renewal' ), 10, 1 );
 		add_action( 'ulx_scheduled_subscription_expiration', array( __CLASS__, 'expire_subscription' ), 10, 1 );
+		add_action( 'woocommerce_scheduled_subscription_expiration', array( __CLASS__, 'expire_subscription' ), 10, 1 );
 		add_action( 'ulx_scheduled_subscription_end_of_prepaid_term', array( __CLASS__, 'end_of_prepaid_term' ), 10, 1 );
+		add_action( 'woocommerce_scheduled_subscription_end_of_prepaid_term', array( __CLASS__, 'end_of_prepaid_term' ), 10, 1 );
 
 		add_action( 'before_delete_post', array( __CLASS__, 'maybe_trash_or_delete_related' ) );
 		add_action( 'wp_trash_post', array( __CLASS__, 'maybe_cancel_on_trash' ) );
@@ -69,6 +74,10 @@ class ULX_Manager {
 						$order->get_order_number()
 					)
 				);
+
+				if ( class_exists( 'ULX_Checkout' ) ) {
+					ULX_Checkout::reconcile_superseded_subscriptions_for_customer( $subscription->get_user_id(), $subscription, $order );
+				}
 			} catch ( Exception $e ) {
 				ulx_log( 'Failed to activate subscription #' . $subscription->get_id() . ': ' . $e->getMessage(), 'error' );
 			}
