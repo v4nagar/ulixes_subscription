@@ -26,7 +26,31 @@ class ULX_Product_Hooks {
 		add_filter( 'woocommerce_add_to_cart_handler', array( __CLASS__, 'add_to_cart_handler' ), 10, 2 );
 		add_filter( 'woocommerce_available_variation', array( __CLASS__, 'filter_available_variation' ), 20, 3 );
 		add_filter( 'woocommerce_is_sold_individually', array( __CLASS__, 'maybe_sold_individually' ), 10, 2 );
+		add_filter( 'woocommerce_product_get_price', array( __CLASS__, 'ensure_active_sale_price' ), 5, 2 );
+		add_filter( 'woocommerce_product_variation_get_price', array( __CLASS__, 'ensure_active_sale_price' ), 5, 2 );
 		add_action( 'before_delete_post', array( __CLASS__, 'maybe_protect_deleting_variation' ) );
+	}
+
+	/**
+	 * Ensure subscription products and variations return their active sale price even if `_price` postmeta was previously out of sync.
+	 *
+	 * @param mixed      $price   Product price.
+	 * @param WC_Product $product Product object.
+	 * @return mixed
+	 */
+	public static function ensure_active_sale_price( $price, $product ) {
+		if ( ! ( $product instanceof WC_Product ) || ! ulx_is_subscription_product( $product ) ) {
+			return $price;
+		}
+		if ( '' !== $product->get_meta( '_ulx_prorated_switch_price', true ) && 'combined_total' === ULX_Cart::get_calculation_type() ) {
+			return $price;
+		}
+		$sale_price = $product->get_sale_price( 'edit' );
+		$reg_price  = $product->get_regular_price( 'edit' );
+		if ( '' !== $sale_price && $product->is_on_sale( 'edit' ) && ( '' === $reg_price || (float) $sale_price < (float) $reg_price ) ) {
+			return $sale_price;
+		}
+		return $price;
 	}
 
 	/**

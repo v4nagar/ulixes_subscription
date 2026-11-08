@@ -20,6 +20,7 @@ class ULX_Manager {
 	public static function init() {
 		add_action( 'woocommerce_order_status_completed', array( __CLASS__, 'activate_subscriptions_for_order' ), 10, 1 );
 		add_action( 'woocommerce_order_status_processing', array( __CLASS__, 'activate_subscriptions_for_order' ), 10, 1 );
+		add_action( 'woocommerce_payment_complete', array( __CLASS__, 'activate_subscriptions_for_order' ), 10, 1 );
 		add_action( 'woocommerce_order_status_failed', array( __CLASS__, 'failed_subscription_sign_ups_for_order' ), 10, 1 );
 		add_action( 'woocommerce_order_status_cancelled', array( __CLASS__, 'cancel_subscriptions_for_order' ), 10, 1 );
 		add_action( 'woocommerce_order_status_refunded', array( __CLASS__, 'cancel_subscriptions_for_order' ), 10, 1 );
@@ -41,7 +42,11 @@ class ULX_Manager {
 	 * @param int|WC_Order $order Order.
 	 */
 	public static function activate_subscriptions_for_order( $order ) {
-		$subscriptions = ulx_get_subscriptions_for_order( $order, array( 'order_type' => array( 'parent', 'resubscribe' ) ) );
+		$order = is_numeric( $order ) ? wc_get_order( $order ) : $order;
+		if ( ! $order || $order instanceof ULX_Subscription ) {
+			return;
+		}
+		$subscriptions = ulx_get_subscriptions_for_order( $order, array( 'order_type' => 'any' ) );
 		if ( empty( $subscriptions ) ) {
 			return;
 		}
@@ -49,8 +54,21 @@ class ULX_Manager {
 			if ( $subscription->has_status( 'active' ) ) {
 				continue;
 			}
+			if ( ! $subscription->can_be_updated_to( 'active' ) ) {
+				continue;
+			}
+			if ( $subscription->needs_payment() ) {
+				continue;
+			}
 			try {
-				$subscription->update_status( 'active', __( 'Subscription activated by parent order payment.', 'ulixes-subscriptions' ) );
+				$subscription->update_status(
+					'active',
+					sprintf(
+						/* translators: %s: order number */
+						__( 'Subscription activated by order #%s payment.', 'ulixes-subscriptions' ),
+						$order->get_order_number()
+					)
+				);
 			} catch ( Exception $e ) {
 				ulx_log( 'Failed to activate subscription #' . $subscription->get_id() . ': ' . $e->getMessage(), 'error' );
 			}

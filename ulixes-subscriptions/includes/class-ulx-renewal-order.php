@@ -27,6 +27,7 @@ class ULX_Renewal_Order {
 	public static function init() {
 		add_action( 'woocommerce_order_status_completed', array( __CLASS__, 'maybe_record_subscription_payment' ), 10, 2 );
 		add_action( 'woocommerce_order_status_processing', array( __CLASS__, 'maybe_record_subscription_payment' ), 10, 2 );
+		add_action( 'woocommerce_payment_complete', array( __CLASS__, 'maybe_record_subscription_payment' ), 10, 1 );
 		add_action( 'woocommerce_order_status_failed', array( __CLASS__, 'maybe_record_subscription_payment_failed' ), 10, 2 );
 		add_filter( 'woocommerce_order_number', array( __CLASS__, 'filter_renewal_order_number' ), 10, 2 );
 	}
@@ -83,6 +84,19 @@ class ULX_Renewal_Order {
 			}
 
 			$subscription->payment_complete( $order->get_transaction_id() );
+
+			// Make sure subscription transitions to active when renewal order is paid (processing or completed).
+			if ( ! $subscription->has_status( 'active' ) && $subscription->can_be_updated_to( 'active' ) ) {
+				$subscription->update_status(
+					'active',
+					sprintf(
+						/* translators: %s: order number */
+						__( 'Subscription activated: renewal order #%s payment received.', 'ulixes-subscriptions' ),
+						$order->get_order_number()
+					)
+				);
+			}
+
 			unset( self::$processing_subscriptions[ $subscription->get_id() ] );
 		}
 	}

@@ -22,7 +22,9 @@ class ULX_Product_Subscription_Data_Store extends WC_Product_Data_Store_CPT {
 	 */
 	protected function update_post_meta( &$product, $force = false ) {
 		parent::update_post_meta( $product, $force );
-		update_post_meta( $product->get_id(), '_subscription_price', $product->get_price( 'edit' ) );
+		$reg_price = $product->get_regular_price( 'edit' );
+		$sub_price = '' !== $reg_price ? $reg_price : $product->get_price( 'edit' );
+		update_post_meta( $product->get_id(), '_subscription_price', $sub_price );
 	}
 }
 

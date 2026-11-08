@@ -99,7 +99,13 @@ function ulx_get_product_price( $product ) {
 	if ( ! $product ) {
 		return 0;
 	}
-	return (float) apply_filters( 'ulx_product_price', (float) $product->get_price(), $product );
+	$sale_price = $product->get_sale_price( 'edit' );
+	if ( '' !== $sale_price && $product->is_on_sale( 'edit' ) ) {
+		$price = $sale_price;
+	} else {
+		$price = $product->get_price();
+	}
+	return (float) apply_filters( 'ulx_product_price', (float) $price, $product );
 }
 
 /**

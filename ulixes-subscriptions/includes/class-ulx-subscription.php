@@ -46,6 +46,13 @@ class ULX_Subscription extends WC_Order {
 	protected $related_cache = array();
 
 	/**
+	 * Guard against recursive payment_complete calls.
+	 *
+	 * @var array
+	 */
+	protected static $processing_payment_complete = array();
+
+	/**
 	 * Order type.
 	 *
 	 * @return string
@@ -892,9 +899,12 @@ class ULX_Subscription extends WC_Order {
 	 * @return bool
 	 */
 	public function payment_complete( $transaction_id = '' ) {
-		if ( ULX_Renewal_Order::is_payment_complete_processing( $this ) ) {
+		$sub_id = $this->get_id();
+		if ( ! empty( self::$processing_payment_complete[ $sub_id ] ) ) {
 			return false;
 		}
+		self::$processing_payment_complete[ $sub_id ] = true;
+
 		$last_order = $this->get_last_order( 'all', array( 'renewal', 'switch', 'parent' ) );
 		if ( $last_order && $last_order->needs_payment() ) {
 			$last_order->payment_complete( $transaction_id );
@@ -914,6 +924,7 @@ class ULX_Subscription extends WC_Order {
 		if ( $last_order && ulx_order_contains_renewal( $last_order ) ) {
 			do_action( 'ulx_subscription_renewal_payment_complete', $this, $last_order );
 		}
+		unset( self::$processing_payment_complete[ $sub_id ] );
 		return true;
 	}
 

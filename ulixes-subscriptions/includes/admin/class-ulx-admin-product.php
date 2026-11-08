@@ -32,12 +32,12 @@ class ULX_Admin_Product {
 		add_action( 'woocommerce_product_options_general_product_data', array( __CLASS__, 'render_simple_subscription_fields' ) );
 		add_action( 'woocommerce_product_options_shipping', array( __CLASS__, 'render_one_time_shipping_field' ) );
 		add_action( 'woocommerce_product_options_advanced', array( __CLASS__, 'render_limit_subscription_field' ) );
-		add_action( 'woocommerce_process_product_meta_subscription', array( __CLASS__, 'save_simple_subscription_meta' ), 10, 1 );
-		add_action( 'woocommerce_process_product_meta_variable-subscription', array( __CLASS__, 'save_variable_subscription_meta' ), 10, 1 );
+		add_action( 'woocommerce_process_product_meta_subscription', array( __CLASS__, 'save_simple_subscription_meta' ), 20, 1 );
+		add_action( 'woocommerce_process_product_meta_variable-subscription', array( __CLASS__, 'save_variable_subscription_meta' ), 20, 1 );
 
 		// Variations.
 		add_action( 'woocommerce_product_after_variable_attributes', array( __CLASS__, 'render_variation_subscription_fields' ), 10, 3 );
-		add_action( 'woocommerce_save_product_variation', array( __CLASS__, 'save_variation_subscription_fields' ), 10, 2 );
+		add_action( 'woocommerce_save_product_variation', array( __CLASS__, 'save_variation_subscription_fields' ), 20, 2 );
 	}
 
 	/**
@@ -226,12 +226,15 @@ class ULX_Admin_Product {
 	 */
 	public static function save_simple_subscription_meta( $post_id ) {
 		// phpcs:disable WordPress.Security.NonceVerification
-		$price = isset( $_POST['_subscription_price'] ) ? wc_format_decimal( sanitize_text_field( wp_unslash( $_POST['_subscription_price'] ) ) ) : '';
-		update_post_meta( $post_id, '_subscription_price', $price );
+		$price      = isset( $_POST['_subscription_price'] ) ? wc_format_decimal( sanitize_text_field( wp_unslash( $_POST['_subscription_price'] ) ) ) : '';
+		$sale_price = isset( $_POST['_sale_price'] ) ? wc_format_decimal( sanitize_text_field( wp_unslash( $_POST['_sale_price'] ) ) ) : get_post_meta( $post_id, '_sale_price', true );
 		update_post_meta( $post_id, '_regular_price', $price );
+		update_post_meta( $post_id, '_subscription_price', $price );
+		update_post_meta( $post_id, '_sale_price', $sale_price );
 
-		$sale_price = get_post_meta( $post_id, '_sale_price', true );
-		if ( '' === $sale_price ) {
+		if ( '' !== $sale_price && (float) $sale_price < (float) $price ) {
+			update_post_meta( $post_id, '_price', $sale_price );
+		} else {
 			update_post_meta( $post_id, '_price', $price );
 		}
 
@@ -268,6 +271,7 @@ class ULX_Admin_Product {
 		$one_time = isset( $_POST['_subscription_one_time_shipping'] ) ? 'yes' : 'no';
 		update_post_meta( $post_id, '_subscription_limit', $limit );
 		update_post_meta( $post_id, '_subscription_one_time_shipping', $one_time );
+		WC_Product_Variable::sync( $post_id );
 		// phpcs:enable WordPress.Security.NonceVerification
 	}
 
@@ -280,7 +284,8 @@ class ULX_Admin_Product {
 	 */
 	public static function render_variation_subscription_fields( $loop, $variation_data, $variation ) {
 		$vid          = $variation->ID;
-		$price        = get_post_meta( $vid, '_subscription_price', true );
+		$reg_price    = get_post_meta( $vid, '_regular_price', true );
+		$price        = '' !== $reg_price ? $reg_price : get_post_meta( $vid, '_subscription_price', true );
 		$interval     = get_post_meta( $vid, '_subscription_period_interval', true ) ?: 1;
 		$period       = get_post_meta( $vid, '_subscription_period', true ) ?: 'month';
 		$length       = get_post_meta( $vid, '_subscription_length', true ) ?: 0;
@@ -352,15 +357,27 @@ class ULX_Admin_Product {
 	 */
 	public static function save_variation_subscription_fields( $variation_id, $i ) {
 		// phpcs:disable WordPress.Security.NonceVerification
-		if ( isset( $_POST['variable_subscription_price'][ $i ] ) ) {
-			$price = wc_format_decimal( sanitize_text_field( wp_unslash( $_POST['variable_subscription_price'][ $i ] ) ) );
-			update_post_meta( $variation_id, '_subscription_price', $price );
-			if ( '' !== $price ) {
-				update_post_meta( $variation_id, '_regular_price', $price );
-				if ( '' === get_post_meta( $variation_id, '_sale_price', true ) ) {
-					update_post_meta( $variation_id, '_price', $price );
-				}
+		$posted_reg  = isset( $_POST['variable_regular_price'][ $i ] ) ? wc_format_decimal( sanitize_text_field( wp_unslash( $_POST['variable_regular_price'][ $i ] ) ) ) : '';
+		$posted_sub  = isset( $_POST['variable_subscription_price'][ $i ] ) ? wc_format_decimal( sanitize_text_field( wp_unslash( $_POST['variable_subscription_price'][ $i ] ) ) ) : '';
+		$posted_sale = isset( $_POST['variable_sale_price'][ $i ] ) ? wc_format_decimal( sanitize_text_field( wp_unslash( $_POST['variable_sale_price'][ $i ] ) ) ) : get_post_meta( $variation_id, '_sale_price', true );
+
+		$reg_price = '' !== $posted_sub ? $posted_sub : $posted_reg;
+		if ( '' !== $posted_sale && '' !== $posted_reg && (float) $posted_reg > (float) $posted_sale && (float) $posted_sub <= (float) $posted_sale ) {
+			$reg_price = $posted_reg;
+		}
+		if ( '' !== $reg_price ) {
+			update_post_meta( $variation_id, '_regular_price', $reg_price );
+			update_post_meta( $variation_id, '_subscription_price', $reg_price );
+			if ( '' !== $posted_sale && (float) $posted_sale < (float) $reg_price ) {
+				update_post_meta( $variation_id, '_price', $posted_sale );
+			} else {
+				update_post_meta( $variation_id, '_price', $reg_price );
 			}
+		}
+		wc_delete_product_transients( $variation_id );
+		$parent_id = wp_get_post_parent_id( $variation_id );
+		if ( $parent_id ) {
+			WC_Product_Variable::sync( $parent_id );
 		}
 
 		$map = array(

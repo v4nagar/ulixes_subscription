@@ -251,7 +251,8 @@ class ULX_Switcher {
 			$apportion_price = ulx_get_option( 'apportion_recurring_price', 'no' );
 			$should_prorate  = ( 'yes' === $apportion_price || 'yes-upgrade' === $apportion_price ) || ( ( 'virtual' === $apportion_price || 'virtual-upgrade' === $apportion_price ) && $product->is_virtual() );
 
-			$initial_amount = (float) ulx_get_product_price( $product );
+			$true_recurring = (float) ulx_get_product_price( $product );
+			$initial_amount = $true_recurring;
 			if ( $should_prorate ) {
 				$next_payment = $subscription->get_time( 'next_payment' );
 				$last_order   = $subscription->get_last_order( 'all', array( 'parent', 'renewal' ) );
@@ -272,8 +273,10 @@ class ULX_Switcher {
 					$diff           = $initial_amount - $old_credit;
 					$initial_amount = $diff > 0 ? ulx_round( $diff ) : 0;
 				}
+				$product->update_meta_data( '_ulx_prorated_switch_price', $initial_amount );
 			}
 
+			$product->update_meta_data( '_ulx_recurring_base_price', $true_recurring );
 			$product->update_meta_data( '_subscription_sign_up_fee', $sign_up_fee );
 			$product->set_price( $initial_amount );
 		}
@@ -337,21 +340,47 @@ class ULX_Switcher {
 			}
 
 			// Remove the old line item from the subscription and add the new product at its full recurring price.
+			$old_item_name = '';
 			if ( ! empty( $switch_data['item_id'] ) ) {
+				$old_sub_item = $subscription->get_item( $switch_data['item_id'] );
+				if ( $old_sub_item ) {
+					$old_item_name = $old_sub_item->get_name();
+				}
 				$subscription->remove_item( $switch_data['item_id'] );
 			}
 
-			$product = $order_item->get_product();
+			$target_id = $order_item->get_variation_id() ? $order_item->get_variation_id() : $order_item->get_product_id();
+			$product   = wc_get_product( $target_id );
+			if ( ! $product ) {
+				$product = $order_item->get_product();
+			}
 			if ( $product ) {
-				$raw_price       = $product->get_meta( '_subscription_price', true );
-				$base_price      = '' !== $raw_price ? (float) $raw_price : (float) ( $product->get_regular_price() ?: $product->get_price() );
-				$recurring_price = wc_get_price_excluding_tax( $product, array( 'price' => $base_price ) );
+				$apportion_price = ulx_get_option( 'apportion_recurring_price', 'no' );
+				$should_prorate  = ( 'yes' === $apportion_price || 'yes-upgrade' === $apportion_price ) || ( ( 'virtual' === $apportion_price || 'virtual-upgrade' === $apportion_price ) && $product->is_virtual() );
+
+				if ( ! $should_prorate && (float) $order_item->get_total() > 0 ) {
+					$item_subtotal = (float) $order_item->get_subtotal();
+					$item_total    = (float) $order_item->get_total();
+				} else {
+					if ( $product->is_on_sale( 'edit' ) && '' !== $product->get_sale_price( 'edit' ) ) {
+						$base_price = (float) $product->get_sale_price( 'edit' );
+					} elseif ( '' !== $product->get_price( 'edit' ) ) {
+						$base_price = (float) $product->get_price( 'edit' );
+					} else {
+						$raw_price  = $product->get_meta( '_subscription_price', true );
+						$base_price = '' !== $raw_price ? (float) $raw_price : (float) $product->get_regular_price( 'edit' );
+					}
+					$recurring_price = wc_get_price_excluding_tax( $product, array( 'price' => $base_price ) );
+					$item_subtotal   = $recurring_price * $order_item->get_quantity();
+					$item_total      = $recurring_price * $order_item->get_quantity();
+				}
+
 				$subscription->add_product(
 					$product,
 					$order_item->get_quantity(),
 					array(
-						'subtotal' => $recurring_price * $order_item->get_quantity(),
-						'total'    => $recurring_price * $order_item->get_quantity(),
+						'subtotal' => $item_subtotal,
+						'total'    => $item_total,
 					)
 				);
 				$new_period   = ulx_get_product_period( $product );
@@ -363,21 +392,58 @@ class ULX_Switcher {
 				$end_date     = ulx_get_product_expiration_date( $product, time() );
 				$subscription->update_dates(
 					array(
+						'trial_end'    => 0,
 						'next_payment' => ulx_date_to_mysql( $next_payment ),
 						'end'          => $end_date ? $end_date : 0,
 					)
 				);
 			}
 
+			// Copy updated billing/shipping addresses and automatic payment gateway if applicable (WCS parity).
+			ulx_copy_order_address( $order, $subscription );
+			if ( $subscription->is_manual() && $order->get_payment_method() && ! ulx_automatic_payments_disabled() ) {
+				$gw = ulx_get_payment_gateway( $order->get_payment_method() );
+				if ( $gw && $gw->supports( 'subscriptions' ) ) {
+					$subscription->set_payment_method( $order->get_payment_method() );
+					$subscription->set_payment_method_title( $order->get_payment_method_title() );
+					$subscription->set_requires_manual_renewal( false );
+				}
+			}
+
+			// Cancel any other pending switch orders for this subscription.
+			foreach ( $subscription->get_related_orders( 'all', 'switch' ) as $other_switch ) {
+				if ( (int) $other_switch->get_id() !== (int) $order->get_id() && $other_switch->has_status( array( 'pending', 'failed', 'on-hold' ) ) ) {
+					$other_switch->update_status(
+						'cancelled',
+						sprintf(
+							/* translators: %s: order number */
+							__( 'Switch order cancelled due to a new switch order being created #%s.', 'ulixes-subscriptions' ),
+							$order->get_order_number()
+						)
+					);
+				}
+			}
+
 			$subscription->calculate_totals();
 			$subscription->save();
-			$subscription->add_order_note(
-				sprintf(
-					/* translators: %s: order number */
-					__( 'Customer switched subscription via order #%s.', 'ulixes-subscriptions' ),
-					$order->get_order_number()
-				)
-			);
+			if ( $old_item_name && $product ) {
+				$subscription->add_order_note(
+					sprintf(
+						/* translators: 1: old item name, 2: new item name */
+						__( 'Customer switched from: %1$s to %2$s.', 'ulixes-subscriptions' ),
+						$old_item_name,
+						$product->get_name()
+					)
+				);
+			} else {
+				$subscription->add_order_note(
+					sprintf(
+						/* translators: %s: order number */
+						__( 'Customer switched subscription via order #%s.', 'ulixes-subscriptions' ),
+						$order->get_order_number()
+					)
+				);
+			}
 			do_action( 'ulx_subscription_switched_item', $subscription, $order_item, $switch_data );
 		}
 

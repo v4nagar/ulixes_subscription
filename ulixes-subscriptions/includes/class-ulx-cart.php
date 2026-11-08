@@ -195,8 +195,13 @@ class ULX_Cart {
 
 			$first_product = null;
 			foreach ( $items as $item_key => $item ) {
-				$cloned_item                                = $item;
-				$cloned_item['data']                        = clone $item['data'];
+				$cloned_item         = $item;
+				$cloned_item['data'] = clone $item['data'];
+				$recurring_base      = $cloned_item['data']->get_meta( '_ulx_recurring_base_price', true );
+				if ( '' !== $recurring_base && false !== $recurring_base ) {
+					$cloned_item['data']->set_price( $recurring_base );
+					$cloned_item['data']->delete_meta_data( '_ulx_prorated_switch_price' );
+				}
 				$recurring_cart->cart_contents[ $item_key ] = $cloned_item;
 				if ( null === $first_product ) {
 					$first_product = $cloned_item['data'];

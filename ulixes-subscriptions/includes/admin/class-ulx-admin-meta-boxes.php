@@ -27,7 +27,7 @@ class ULX_Admin_Meta_Boxes {
 	 */
 	public static function init() {
 		add_action( 'add_meta_boxes', array( __CLASS__, 'add_meta_boxes' ), 25 );
-		add_action( 'woocommerce_process_shop_order_meta', array( __CLASS__, 'save_subscription_schedule_meta' ), 40, 2 );
+		add_action( 'woocommerce_process_shop_order_meta', array( __CLASS__, 'save_subscription_schedule_meta' ), 55, 2 );
 		add_filter( 'woocommerce_order_actions', array( __CLASS__, 'add_subscription_actions' ), 10, 2 );
 
 		add_action( 'woocommerce_order_action_ulx_process_renewal', array( __CLASS__, 'action_process_renewal' ) );
@@ -269,6 +269,10 @@ class ULX_Admin_Meta_Boxes {
 		}
 
 		$sub->save();
+
+		if ( class_exists( 'ULX_Scheduler' ) ) {
+			ULX_Scheduler::process_overdue_for_subscription( $sub );
+		}
 	}
 
 	/**
