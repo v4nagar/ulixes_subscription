@@ -61,6 +61,24 @@
 		$(document).on('woocommerce_variations_loaded woocommerce_variations_added', function () {
 			toggleSubscriptionProductFields();
 		});
+
+		if ($.fn.datepicker && $('.ulx-date-picker').length) {
+			$('.ulx-date-picker').datepicker({
+				dateFormat: 'yy-mm-dd',
+				showButtonPanel: true,
+				onSelect: function (dateText) {
+					var $wrap = $(this).closest('.ulx-date-time-fields');
+					var $hh = $wrap.find('.ulx-hour-input');
+					var $mm = $wrap.find('.ulx-minute-input');
+					if (dateText && '' === $.trim($hh.val())) {
+						$hh.val('23');
+					}
+					if (dateText && '' === $.trim($mm.val())) {
+						$mm.val('59');
+					}
+				}
+			});
+		}
 	});
 })(jQuery);
 

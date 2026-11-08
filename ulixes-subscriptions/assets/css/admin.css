@@ -48,3 +48,81 @@
 	margin-right: 6px;
 }
 
+/* Schedule Meta Box (WCS layout parity) */
+.ulx-metabox-schedule {
+	padding-top: 4px;
+}
+
+.ulx-schedule-payment-row {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	margin-bottom: 12px;
+}
+
+.ulx-schedule-payment-row .ulx-payment-label {
+	margin-right: 2px;
+	white-space: nowrap;
+}
+
+.ulx-schedule-payment-row .ulx-billing-interval {
+	width: 96px;
+	max-width: 45%;
+}
+
+.ulx-schedule-payment-row .ulx-billing-period {
+	width: 78px;
+	max-width: 38%;
+}
+
+.ulx-schedule-start-date {
+	margin: 10px 0 12px;
+	font-size: 13px;
+	color: #3c434a;
+}
+
+.ulx-date-input {
+	margin-bottom: 12px;
+}
+
+.ulx-date-input > label {
+	display: block;
+	margin-bottom: 4px;
+	font-size: 13px;
+	color: #3c434a;
+}
+
+.ulx-date-time-fields {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 4px;
+}
+
+.ulx-date-time-fields input.ulx-date-picker {
+	width: 112px;
+	padding: 3px 8px;
+	font-size: 13px;
+}
+
+.ulx-date-time-fields input.ulx-hour-input,
+.ulx-date-time-fields input.ulx-minute-input {
+	width: 56px;
+	padding: 3px 6px;
+	text-align: left;
+	font-size: 13px;
+}
+
+.ulx-date-time-fields .ulx-at,
+.ulx-date-time-fields .ulx-colon {
+	color: #50575e;
+	font-size: 13px;
+}
+
+.ulx-timezone-info {
+	margin: 12px 0 4px;
+	font-size: 13px;
+	color: #3c434a;
+}
+
+

@@ -93,7 +93,7 @@ class ULX_Admin {
 	 */
 	public static function enqueue_admin_assets( $hook_suffix ) {
 		wp_enqueue_style( 'ulx-admin', ULX_PLUGIN_URL . 'assets/css/admin.css', array(), ULX_VERSION );
-		wp_enqueue_script( 'ulx-admin', ULX_PLUGIN_URL . 'assets/js/admin.js', array( 'jquery' ), ULX_VERSION, true );
+		wp_enqueue_script( 'ulx-admin', ULX_PLUGIN_URL . 'assets/js/admin.js', array( 'jquery', 'jquery-ui-datepicker' ), ULX_VERSION, true );
 		wp_localize_script(
 			'ulx-admin',
 			'ulx_admin_params',

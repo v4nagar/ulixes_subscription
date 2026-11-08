@@ -45,7 +45,7 @@ class ULX_Admin_Meta_Boxes {
 		foreach ( $sub_screens as $screen ) {
 			add_meta_box(
 				'ulx-subscription-schedule',
-				__( 'Billing Schedule', 'ulixes-subscriptions' ),
+				__( 'Schedule', 'ulixes-subscriptions' ),
 				array( __CLASS__, 'render_schedule_meta_box' ),
 				$screen,
 				'side',
@@ -66,7 +66,35 @@ class ULX_Admin_Meta_Boxes {
 	}
 
 	/**
-	 * Render the Billing Schedule meta box on the Subscription edit screen.
+	 * Resolve the store timezone label from WooCommerce / WordPress settings (e.g. "Asia/Calcutta" or "UTC+5:30").
+	 *
+	 * @return string
+	 */
+	public static function get_store_timezone_label() {
+		$tz_string = get_option( 'timezone_string' );
+		if ( ! empty( $tz_string ) ) {
+			return $tz_string;
+		}
+		$offset  = (float) get_option( 'gmt_offset', 0 );
+		$seconds = (int) round( $offset * HOUR_IN_SECONDS );
+		if ( 19800 === $seconds ) {
+			return 'Asia/Calcutta';
+		}
+		$abbr_name = timezone_name_from_abbr( '', $seconds, 0 );
+		if ( ! empty( $abbr_name ) ) {
+			return $abbr_name;
+		}
+		if ( function_exists( 'wc_timezone_string' ) ) {
+			$wc_tz = wc_timezone_string();
+			if ( ! empty( $wc_tz ) ) {
+				return $wc_tz;
+			}
+		}
+		return 'UTC';
+	}
+
+	/**
+	 * Render the Schedule meta box on the Subscription edit screen.
 	 *
 	 * @param WP_Post|WC_Order $post_or_order Post or Order object.
 	 */
@@ -79,44 +107,70 @@ class ULX_Admin_Meta_Boxes {
 		wp_nonce_field( 'ulx_save_schedule_meta', '_ulx_schedule_nonce' );
 		$interval = $sub->get_billing_interval();
 		$period   = $sub->get_billing_period() ?: 'month';
+		$start_ts = $sub->get_time( 'start', 'gmt' );
 		?>
 		<div class="ulx-metabox-schedule">
-			<p class="form-field">
-				<label><strong><?php esc_html_e( 'Recurring:', 'ulixes-subscriptions' ); ?></strong></label><br/>
-				<select name="_billing_interval" style="width:48%;">
+			<div class="ulx-schedule-payment-row">
+				<label for="_billing_interval" class="ulx-payment-label"><strong><?php esc_html_e( 'Payment:', 'ulixes-subscriptions' ); ?></strong></label>
+				<select name="_billing_interval" id="_billing_interval" class="ulx-billing-interval">
 					<?php foreach ( ulx_get_subscription_period_interval_strings() as $val => $label ) : ?>
 						<option value="<?php echo esc_attr( $val ); ?>" <?php selected( $val, $interval ); ?>><?php echo esc_html( $label ); ?></option>
 					<?php endforeach; ?>
 				</select>
-				<select name="_billing_period" style="width:48%;">
+				<select name="_billing_period" id="_billing_period" class="ulx-billing-period">
 					<?php foreach ( ulx_get_subscription_period_strings() as $val => $label ) : ?>
 						<option value="<?php echo esc_attr( $val ); ?>" <?php selected( $val, $period ); ?>><?php echo esc_html( $label ); ?></option>
 					<?php endforeach; ?>
 				</select>
-			</p>
+			</div>
+
+			<div class="ulx-schedule-start-date">
+				<strong><?php esc_html_e( 'Start Date:', 'ulixes-subscriptions' ); ?></strong>
+				<?php if ( $start_ts ) : ?>
+					<span title="<?php echo esc_attr( $sub->get_date( 'start', 'site' ) ); ?>"><?php echo esc_html( ulx_human_time_diff( $start_ts ) ); ?></span>
+					<input type="hidden" name="ulx_schedule_start_preserved" value="1" />
+				<?php else : ?>
+					<span><?php echo esc_html( wp_date( 'Y-m-d', time() ) ); ?></span>
+				<?php endif; ?>
+			</div>
 
 			<?php
 			$date_fields = array(
-				'start'        => __( 'Start Date (UTC)', 'ulixes-subscriptions' ),
-				'trial_end'    => __( 'Trial End (UTC)', 'ulixes-subscriptions' ),
-				'next_payment' => __( 'Next Payment (UTC)', 'ulixes-subscriptions' ),
-				'end'          => __( 'End Date (UTC)', 'ulixes-subscriptions' ),
+				'trial_end'    => __( 'Trial End', 'ulixes-subscriptions' ),
+				'next_payment' => __( 'Next Payment', 'ulixes-subscriptions' ),
+				'end'          => __( 'End Date', 'ulixes-subscriptions' ),
 			);
 			foreach ( $date_fields as $type => $label ) :
-				$val = $sub->get_date( $type, 'gmt' );
-				$val = $val ? $val : '';
+				$site_val  = $sub->get_date( $type, 'site' );
+				$date_part = '';
+				$hour_part = '';
+				$min_part  = '';
+				$sec_part  = '00';
+				if ( ! empty( $site_val ) && '0' !== (string) $site_val && strlen( $site_val ) >= 16 ) {
+					$date_part = substr( $site_val, 0, 10 );
+					$hour_part = substr( $site_val, 11, 2 );
+					$min_part  = substr( $site_val, 14, 2 );
+					$sec_part  = strlen( $site_val ) >= 19 ? substr( $site_val, 17, 2 ) : '00';
+				}
 				?>
-				<p class="form-field">
-					<label for="ulx_schedule_<?php echo esc_attr( $type ); ?>"><strong><?php echo esc_html( $label ); ?>:</strong></label><br/>
-					<input type="text" class="widefat" id="ulx_schedule_<?php echo esc_attr( $type ); ?>" name="ulx_schedule_dates[<?php echo esc_attr( $type ); ?>]" value="<?php echo esc_attr( $val ); ?>" placeholder="YYYY-MM-DD HH:MM:SS" />
-				</p>
+				<div class="ulx-date-input">
+					<label for="ulx_schedule_<?php echo esc_attr( $type ); ?>_date"><?php echo esc_html( $label ); ?>:</label>
+					<div class="ulx-date-time-fields">
+						<input type="text" class="date-picker ulx-date-picker" id="ulx_schedule_<?php echo esc_attr( $type ); ?>_date" name="ulx_schedule_date[<?php echo esc_attr( $type ); ?>]" value="<?php echo esc_attr( $date_part ); ?>" placeholder="YYYY-MM-DD" maxlength="10" pattern="[0-9]{4}-(0[1-9]|1[012])-(0[1-9]|1[0-9]|2[0-9]|3[01])" />
+						<span class="ulx-at">@</span>
+						<input type="text" class="hour ulx-hour-input" id="ulx_schedule_<?php echo esc_attr( $type ); ?>_hour" name="ulx_schedule_hour[<?php echo esc_attr( $type ); ?>]" value="<?php echo esc_attr( $hour_part ); ?>" placeholder="HH" maxlength="2" size="2" pattern="([01]?[0-9]{1}|2[0-3]{1})" />
+						<span class="ulx-colon">:</span>
+						<input type="text" class="minute ulx-minute-input" id="ulx_schedule_<?php echo esc_attr( $type ); ?>_minute" name="ulx_schedule_minute[<?php echo esc_attr( $type ); ?>]" value="<?php echo esc_attr( $min_part ); ?>" placeholder="MM" maxlength="2" size="2" pattern="[0-5]{1}[0-9]{1}" />
+						<input type="hidden" name="ulx_schedule_second[<?php echo esc_attr( $type ); ?>]" value="<?php echo esc_attr( $sec_part ); ?>" />
+					</div>
+				</div>
 			<?php endforeach; ?>
 
-			<p class="form-field">
-				<label>
-					<input type="checkbox" name="_requires_manual_renewal" value="true" <?php checked( $sub->get_requires_manual_renewal(), true ); ?> />
-					<?php esc_html_e( 'Force Manual Renewal', 'ulixes-subscriptions' ); ?>
-				</label>
+			<p class="ulx-timezone-info">
+				<?php
+				/* translators: %s: store timezone name */
+				printf( esc_html__( 'Timezone: %s', 'ulixes-subscriptions' ), esc_html( self::get_store_timezone_label() ) );
+				?>
 			</p>
 
 			<?php
@@ -138,7 +192,7 @@ class ULX_Admin_Meta_Boxes {
 	}
 
 	/**
-	 * Save Billing Schedule & Gateway Token meta when a subscription is saved in admin.
+	 * Save Schedule & Gateway Token meta when a subscription is saved in admin.
 	 *
 	 * @param int          $post_id Post ID.
 	 * @param WP_Post|null $post    Post or Order.
@@ -159,7 +213,9 @@ class ULX_Admin_Meta_Boxes {
 			$sub->set_billing_period( sanitize_text_field( wp_unslash( $_POST['_billing_period'] ) ) );
 		}
 
-		$sub->set_requires_manual_renewal( ! empty( $_POST['_requires_manual_renewal'] ) );
+		if ( isset( $_POST['_requires_manual_renewal'] ) ) {
+			$sub->set_requires_manual_renewal( ! empty( $_POST['_requires_manual_renewal'] ) );
+		}
 
 		if ( ! empty( $_POST['ulx_gateway_meta'] ) && is_array( $_POST['ulx_gateway_meta'] ) ) {
 			foreach ( wp_unslash( $_POST['ulx_gateway_meta'] ) as $k => $v ) { // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized
@@ -167,7 +223,32 @@ class ULX_Admin_Meta_Boxes {
 			}
 		}
 
-		if ( ! empty( $_POST['ulx_schedule_dates'] ) && is_array( $_POST['ulx_schedule_dates'] ) ) {
+		if ( isset( $_POST['ulx_schedule_date'] ) && is_array( $_POST['ulx_schedule_date'] ) ) {
+			$raw_dates   = wp_unslash( $_POST['ulx_schedule_date'] ); // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized
+			$raw_hours   = isset( $_POST['ulx_schedule_hour'] ) && is_array( $_POST['ulx_schedule_hour'] ) ? wp_unslash( $_POST['ulx_schedule_hour'] ) : array(); // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized
+			$raw_minutes = isset( $_POST['ulx_schedule_minute'] ) && is_array( $_POST['ulx_schedule_minute'] ) ? wp_unslash( $_POST['ulx_schedule_minute'] ) : array(); // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized
+			$raw_seconds = isset( $_POST['ulx_schedule_second'] ) && is_array( $_POST['ulx_schedule_second'] ) ? wp_unslash( $_POST['ulx_schedule_second'] ) : array(); // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized
+
+			$dates = array();
+			foreach ( $raw_dates as $type => $date_str ) {
+				$type     = sanitize_key( $type );
+				$date_str = trim( sanitize_text_field( $date_str ) );
+				if ( '' === $date_str ) {
+					$dates[ $type ] = 0;
+					continue;
+				}
+				$hh = isset( $raw_hours[ $type ] ) && '' !== trim( $raw_hours[ $type ] ) ? str_pad( (string) min( 23, max( 0, absint( $raw_hours[ $type ] ) ) ), 2, '0', STR_PAD_LEFT ) : '23';
+				$mm = isset( $raw_minutes[ $type ] ) && '' !== trim( $raw_minutes[ $type ] ) ? str_pad( (string) min( 59, max( 0, absint( $raw_minutes[ $type ] ) ) ), 2, '0', STR_PAD_LEFT ) : '59';
+				$ss = isset( $raw_seconds[ $type ] ) && '' !== trim( $raw_seconds[ $type ] ) ? str_pad( (string) min( 59, max( 0, absint( $raw_seconds[ $type ] ) ) ), 2, '0', STR_PAD_LEFT ) : '00';
+
+				$dates[ $type ] = "{$date_str} {$hh}:{$mm}:{$ss}";
+			}
+			try {
+				$sub->update_dates( $dates, 'site' );
+			} catch ( Exception $e ) {
+				WC_Admin_Meta_Boxes::add_error( $e->getMessage() );
+			}
+		} elseif ( ! empty( $_POST['ulx_schedule_dates'] ) && is_array( $_POST['ulx_schedule_dates'] ) ) {
 			$dates = array();
 			foreach ( wp_unslash( $_POST['ulx_schedule_dates'] ) as $type => $date_str ) { // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized
 				$type     = sanitize_key( $type );
