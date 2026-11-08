@@ -142,14 +142,14 @@ class ULX_Admin_Settings {
 				'desc'    => __( 'Display the auto renewal toggle so customers can turn automatic renewals on or off from My Account', 'ulixes-subscriptions' ),
 				'id'      => 'ulx_enable_auto_renewal_toggle',
 				'type'    => 'checkbox',
-				'default' => 'no',
+				'default' => 'yes',
 			),
 			array(
 				'name'          => __( 'Early Renewal', 'ulixes-subscriptions' ),
 				'desc'          => __( 'Accept Early Renewal Payments', 'ulixes-subscriptions' ),
 				'id'            => 'ulx_enable_early_renewal',
 				'type'          => 'checkbox',
-				'default'       => 'no',
+				'default'       => 'yes',
 				'checkboxgroup' => 'start',
 			),
 			array(
@@ -181,14 +181,14 @@ class ULX_Admin_Settings {
 				'desc'          => __( 'Between Subscription Variations', 'ulixes-subscriptions' ),
 				'id'            => 'ulx_allow_switching_variable',
 				'type'          => 'checkbox',
-				'default'       => 'no',
+				'default'       => 'yes',
 				'checkboxgroup' => 'start',
 			),
 			array(
 				'desc'          => __( 'Between Grouped Subscriptions', 'ulixes-subscriptions' ),
 				'id'            => 'ulx_allow_switching_grouped',
 				'type'          => 'checkbox',
-				'default'       => 'no',
+				'default'       => 'yes',
 				'checkboxgroup' => 'end',
 			),
 			array(

@@ -90,10 +90,14 @@ if ( ! function_exists( 'ulx_init_plugin' ) ) {
 			add_action( 'admin_notices', 'ulx_missing_wc_notice' );
 			return;
 		}
-		if ( '1.0.2' !== get_option( 'ulx_db_migration_version' ) ) {
+		if ( '1.0.4' !== get_option( 'ulx_db_migration_version' ) ) {
 			update_option( 'ulx_accept_manual_renewals', 'yes' );
+			update_option( 'ulx_allow_switching_variable', 'yes' );
+			update_option( 'ulx_allow_switching_grouped', 'yes' );
+			update_option( 'ulx_enable_early_renewal', 'yes' );
+			update_option( 'ulx_enable_auto_renewal_toggle', 'yes' );
 			delete_option( 'woocommerce_ulx_test_gateway_settings' );
-			update_option( 'ulx_db_migration_version', '1.0.2' );
+			update_option( 'ulx_db_migration_version', '1.0.4' );
 		}
 		require_once ULX_PLUGIN_DIR . 'includes/class-ulx-plugin.php';
 		ULX_Plugin::instance();
@@ -132,9 +136,9 @@ if ( ! function_exists( 'ulx_activate' ) ) {
 			'ulx_accept_manual_renewals'                => 'yes',
 			'ulx_turn_off_automatic_payments'           => 'no',
 			'ulx_enable_retry'                          => 'no',
-			'ulx_allow_switching_simple'                => 'no',
-			'ulx_allow_switching_variable'              => 'no',
-			'ulx_allow_switching_grouped'               => 'no',
+			'ulx_allow_switching_simple'                => 'yes',
+			'ulx_allow_switching_variable'              => 'yes',
+			'ulx_allow_switching_grouped'               => 'yes',
 			'ulx_apportion_recurring_price'             => 'no',
 			'ulx_apportion_sign_up_fee'                 => 'no',
 			'ulx_apportion_length'                      => 'no',
@@ -142,12 +146,12 @@ if ( ! function_exists( 'ulx_activate' ) ) {
 			'ulx_sync_payments'                         => 'no',
 			'ulx_prorate_synced_payments'               => 'no',
 			'ulx_days_no_fee'                           => 0,
-			'ulx_enable_early_renewal'                  => 'no',
+			'ulx_enable_early_renewal'                  => 'yes',
 			'ulx_enable_early_renewal_via_modal'        => 'no',
 			'ulx_allow_customer_suspension'             => 0,
 			'ulx_multiple_purchase'                     => 'no',
 			'ulx_drip_downloadable_content'             => 'no',
-			'ulx_enable_auto_renewal_toggle'            => 'no',
+			'ulx_enable_auto_renewal_toggle'            => 'yes',
 			'ulx_zero_initial_payment_requires_payment' => 'no',
 			'ulx_cancelled_role'                        => 'customer',
 			'ulx_subscriber_role'                       => 'subscriber',

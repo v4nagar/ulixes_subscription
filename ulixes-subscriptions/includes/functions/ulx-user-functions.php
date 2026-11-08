@@ -37,6 +37,34 @@ function ulx_user_has_subscription( $user_id = 0, $product_id = '', $status = 'a
 }
 
 /**
+ * Find the first matching subscription for a user and product ID (parent or variation).
+ *
+ * @param int          $user_id    User ID (0 = current user).
+ * @param int          $product_id Product or variation ID.
+ * @param string|array $status     Status or array of statuses.
+ * @return ULX_Subscription|false
+ */
+function ulx_get_user_subscription_for_product( $user_id = 0, $product_id = 0, $status = array( 'active', 'on-hold', 'pending-cancel' ) ) {
+	if ( empty( $user_id ) ) {
+		$user_id = get_current_user_id();
+	}
+	if ( empty( $user_id ) || empty( $product_id ) ) {
+		return false;
+	}
+	$subscriptions = ulx_get_users_subscriptions( $user_id );
+	foreach ( $subscriptions as $subscription ) {
+		if ( ! $subscription->has_product( $product_id ) ) {
+			continue;
+		}
+		if ( ! empty( $status ) && 'any' !== $status && ! $subscription->has_status( $status ) ) {
+			continue;
+		}
+		return $subscription;
+	}
+	return false;
+}
+
+/**
  * Give the user the active subscriber role (unless they are an admin / shop manager).
  *
  * @param int $user_id User ID.

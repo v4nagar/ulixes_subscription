@@ -214,7 +214,7 @@ class ULX_Admin_Product {
 				),
 				'description'   => __( 'Optionally limit a customer to one subscription to this product.', 'ulixes-subscriptions' ),
 				'desc_tip'      => true,
-				'value'         => get_post_meta( $post->ID, '_subscription_limit', true ) ?: 'no',
+				'value'         => get_post_meta( $post->ID, '_subscription_limit', true ) ?: 'active',
 			)
 		);
 	}
@@ -242,7 +242,7 @@ class ULX_Admin_Product {
 			'_subscription_trial_length'      => 0,
 			'_subscription_trial_period'      => 'day',
 			'_subscription_payment_sync_date' => 0,
-			'_subscription_limit'             => 'no',
+			'_subscription_limit'             => 'active',
 		);
 		foreach ( $fields as $key => $default ) {
 			$val = isset( $_POST[ $key ] ) ? sanitize_text_field( wp_unslash( $_POST[ $key ] ) ) : $default;
@@ -264,7 +264,7 @@ class ULX_Admin_Product {
 	 */
 	public static function save_variable_subscription_meta( $post_id ) {
 		// phpcs:disable WordPress.Security.NonceVerification
-		$limit    = isset( $_POST['_subscription_limit'] ) ? sanitize_text_field( wp_unslash( $_POST['_subscription_limit'] ) ) : 'no';
+		$limit    = isset( $_POST['_subscription_limit'] ) ? sanitize_text_field( wp_unslash( $_POST['_subscription_limit'] ) ) : 'active';
 		$one_time = isset( $_POST['_subscription_one_time_shipping'] ) ? 'yes' : 'no';
 		update_post_meta( $post_id, '_subscription_limit', $limit );
 		update_post_meta( $post_id, '_subscription_one_time_shipping', $one_time );

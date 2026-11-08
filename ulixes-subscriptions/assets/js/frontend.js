@@ -46,5 +46,25 @@
 			e.preventDefault();
 		}
 	});
+
+	// Dynamically update button text on variable subscription product pages when selecting current plan vs upgrade/downgrade plan.
+	$(document).on('found_variation', 'form.variations_form', function (event, variation) {
+		var $form = $(this);
+		var $btn = $form.find('.single_add_to_cart_button');
+		if (!$btn.data('ulx-default-text')) {
+			$btn.data('ulx-default-text', $btn.text());
+		}
+		if (variation && variation.ulx_button_text) {
+			$btn.text(variation.ulx_button_text);
+		}
+	});
+
+	$(document).on('reset_data', 'form.variations_form', function () {
+		var $form = $(this);
+		var $btn = $form.find('.single_add_to_cart_button');
+		if ($btn.data('ulx-default-text')) {
+			$btn.text($btn.data('ulx-default-text'));
+		}
+	});
 })(jQuery);
 

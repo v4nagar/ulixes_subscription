@@ -128,7 +128,7 @@ class ULX_Checkout {
 		if ( empty( WC()->cart ) || ! ulx_cart_contains_subscription() ) {
 			return;
 		}
-		if ( ulx_cart_contains_renewal() ) {
+		if ( ulx_cart_contains_renewal() || ulx_cart_contains_switches() ) {
 			return;
 		}
 
@@ -137,7 +137,7 @@ class ULX_Checkout {
 			return;
 		}
 
-		$existing = ulx_get_subscriptions_for_order( $order->get_id(), array( 'order_type' => 'parent' ) );
+		$existing = ulx_get_subscriptions_for_order( $order->get_id(), array( 'order_type' => 'any' ) );
 		if ( ! empty( $existing ) ) {
 			return;
 		}
@@ -165,7 +165,23 @@ class ULX_Checkout {
 	 * @return ULX_Subscription|WP_Error
 	 */
 	public static function create_subscription( $order, $recurring_cart, $posted_data = array() ) {
-		$customer_id  = self::resolve_customer_for_order( $order );
+		$customer_id = self::resolve_customer_for_order( $order );
+		if ( $customer_id > 0 ) {
+			foreach ( $recurring_cart->get_cart() as $cart_item ) {
+				if ( ! empty( $cart_item['subscription_resubscribe'] ) ) {
+					continue;
+				}
+				$prod = isset( $cart_item['data'] ) ? $cart_item['data'] : false;
+				if ( $prod && 'no' !== ulx_get_product_limit( $prod ) ) {
+					$parent_pid   = $prod->get_parent_id() ? $prod->get_parent_id() : $prod->get_id();
+					$existing_sub = ulx_get_user_subscription_for_product( $customer_id, $parent_pid, array( 'active', 'on-hold' ) );
+					if ( $existing_sub ) {
+						return self::handle_existing_subscription_order( $order, $existing_sub, $prod );
+					}
+				}
+			}
+		}
+
 		$start_date   = getattr_or_prop( $recurring_cart, 'start_date', current_time( 'mysql', true ) );
 		$subscription = ulx_create_subscription(
 			array(
@@ -286,6 +302,14 @@ class ULX_Checkout {
 
 		foreach ( $groups as $group_items ) {
 			$first_product = $group_items[0]['product'];
+			if ( $customer_id > 0 && 'no' !== ulx_get_product_limit( $first_product ) ) {
+				$parent_pid   = $first_product->get_parent_id() ? $first_product->get_parent_id() : $first_product->get_id();
+				$existing_sub = ulx_get_user_subscription_for_product( $customer_id, $parent_pid, array( 'active', 'on-hold' ) );
+				if ( $existing_sub ) {
+					self::handle_existing_subscription_order( $order, $existing_sub, $first_product );
+					continue;
+				}
+			}
 			$period        = ulx_get_product_period( $first_product );
 			$interval      = ulx_get_product_interval( $first_product );
 
@@ -353,6 +377,58 @@ class ULX_Checkout {
 				$subscription->update_status( 'on-hold', __( 'Subscription placed on hold by parent order.', 'ulixes-subscriptions' ) );
 			}
 		}
+	}
+
+	/**
+	 * When an order is placed for a product where the customer already has an active subscription,
+	 * route it to either Switch (Upgrade/Downgrade) if the variation differs, or Early Renewal if the plan is identical.
+	 *
+	 * @param WC_Order         $order        Order.
+	 * @param ULX_Subscription $existing_sub Existing subscription.
+	 * @param WC_Product       $product      Ordered product or variation.
+	 * @return ULX_Subscription
+	 */
+	protected static function handle_existing_subscription_order( $order, $existing_sub, $product ) {
+		$parent_pid    = $product->get_parent_id() ? $product->get_parent_id() : $product->get_id();
+		$is_variation  = $product->get_parent_id() > 0;
+		$is_switch     = $is_variation && ! $existing_sub->has_product( $product->get_id() );
+
+		if ( $is_switch ) {
+			$old_item_id = 0;
+			foreach ( $existing_sub->get_items() as $sub_item_id => $sub_item ) {
+				if ( (int) $sub_item->get_product_id() === (int) $parent_pid ) {
+					$old_item_id = $sub_item_id;
+					break;
+				}
+			}
+			foreach ( $order->get_items( 'line_item' ) as $order_item ) {
+				if ( (int) $order_item->get_product_id() === (int) $parent_pid ) {
+					$order_item->update_meta_data(
+						'_subscription_switch_data',
+						array(
+							'subscription_id'        => $existing_sub->get_id(),
+							'item_id'                => $old_item_id,
+							'next_payment_timestamp' => $existing_sub->get_time( 'next_payment' ),
+							'upgraded_or_downgraded' => 'switched',
+						)
+					);
+					$order_item->save();
+				}
+			}
+			ulx_add_order_subscription_relation( $order, $existing_sub->get_id(), 'switch' );
+			if ( $order->has_status( array( 'processing', 'completed', 'on-hold' ) ) ) {
+				ULX_Switcher::complete_switch_for_order( $order->get_id() );
+			}
+		} else {
+			ulx_add_order_subscription_relation( $order, $existing_sub->get_id(), 'renewal' );
+			$order->update_meta_data( '_subscription_renewal_early', $existing_sub->get_id() );
+			$order->save();
+			if ( $order->has_status( array( 'processing', 'completed', 'on-hold' ) ) ) {
+				ULX_Renewal_Order::maybe_record_subscription_payment( $order->get_id(), $order );
+			}
+		}
+
+		return $existing_sub;
 	}
 }
 

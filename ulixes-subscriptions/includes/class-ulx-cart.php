@@ -94,7 +94,6 @@ class ULX_Cart {
 			$cart_has_sub = ulx_cart_contains_subscription();
 
 			if ( $adding_sub && $cart_has_sub ) {
-				wc_add_notice( __( 'Because mixed checkout is disabled, you can only purchase one subscription at a time. Your previous cart has been replaced.', 'ulixes-subscriptions' ), 'notice' );
 				WC()->cart->empty_cart();
 			}
 		}

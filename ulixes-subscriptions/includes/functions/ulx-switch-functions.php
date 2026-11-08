@@ -21,10 +21,7 @@ function ulx_can_item_be_switched_by_user( $subscription, $item ) {
 	if ( ! $subscription || ! ( $item instanceof WC_Order_Item_Product ) ) {
 		return false;
 	}
-	if ( ! $subscription->has_status( 'active' ) ) {
-		return false;
-	}
-	if ( ! $subscription->payment_method_supports( 'subscription_amount_changes' ) || ! $subscription->payment_method_supports( 'subscription_date_changes' ) ) {
+	if ( ! $subscription->has_status( array( 'active', 'on-hold' ) ) ) {
 		return false;
 	}
 
@@ -33,12 +30,12 @@ function ulx_can_item_be_switched_by_user( $subscription, $item ) {
 		return false;
 	}
 
-	$is_variable = $product->is_type( array( 'subscription_variation', 'variable-subscription' ) ) || $item->get_variation_id();
-	if ( $is_variable && ulx_option_is_yes( 'allow_switching_variable' ) ) {
+	$is_variable = $product->is_type( array( 'subscription_variation', 'variable-subscription', 'variation' ) ) || $item->get_variation_id() > 0 || $product->get_parent_id() > 0;
+	if ( $is_variable && 'no' !== ulx_get_option( 'allow_switching_variable', 'yes' ) ) {
 		return (bool) apply_filters( 'ulx_can_item_be_switched_by_user', true, $item, $subscription );
 	}
 
-	if ( ulx_option_is_yes( 'allow_switching_grouped' ) ) {
+	if ( 'no' !== ulx_get_option( 'allow_switching_grouped', 'yes' ) ) {
 		// Check if product belongs to any grouped product.
 		$parent_grouped = ulx_get_grouped_parent_id( $product->get_id() );
 		if ( $parent_grouped ) {

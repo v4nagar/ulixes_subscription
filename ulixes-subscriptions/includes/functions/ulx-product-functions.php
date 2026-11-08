@@ -185,11 +185,17 @@ function ulx_get_product_sync_date( $product ) {
  */
 function ulx_get_product_limit( $product ) {
 	$product = ulx_maybe_get_product( $product );
-	if ( $product && $product->is_type( 'subscription_variation' ) ) {
-		$product = wc_get_product( $product->get_parent_id() );
+	if ( $product && $product->get_parent_id() > 0 ) {
+		$parent = wc_get_product( $product->get_parent_id() );
+		if ( $parent ) {
+			$product = $parent;
+		}
 	}
-	$limit = $product ? $product->get_meta( '_subscription_limit', true ) : 'no';
-	return apply_filters( 'ulx_product_limit', $limit ? $limit : 'no', $product );
+	$limit = $product ? $product->get_meta( '_subscription_limit', true ) : '';
+	if ( '' === $limit || null === $limit ) {
+		$limit = 'active';
+	}
+	return apply_filters( 'ulx_product_limit', $limit, $product );
 }
 
 /**
@@ -226,21 +232,14 @@ function ulx_product_has_trial( $product ) {
  * @return WC_Product|false
  */
 function ulx_get_min_price_variation( $product ) {
-	if ( ! $product || ! $product->is_type( 'variable-subscription' ) ) {
+	if ( ! $product || ! $product->is_type( array( 'variable-subscription', 'variable' ) ) ) {
 		return false;
-	}
-	$min_id = $product->get_meta( '_min_price_variation_id', true );
-	if ( $min_id ) {
-		$v = wc_get_product( $min_id );
-		if ( $v ) {
-			return $v;
-		}
 	}
 	$best    = false;
 	$best_pp = null;
 	foreach ( $product->get_children() as $child_id ) {
 		$child = wc_get_product( $child_id );
-		if ( ! $child || ! $child->is_purchasable() ) {
+		if ( ! $child || '' === $child->get_price() ) {
 			continue;
 		}
 		// Compare per-day price so "$10/week" < "$50/month" correctly.

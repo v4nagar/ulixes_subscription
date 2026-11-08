@@ -28,10 +28,15 @@ class ULX_Switcher {
 		add_filter( 'woocommerce_product_single_add_to_cart_text', array( __CLASS__, 'switch_add_to_cart_text' ), 20, 2 );
 		add_filter( 'woocommerce_add_cart_item_data', array( __CLASS__, 'add_switch_cart_item_data' ), 10, 3 );
 		add_filter( 'woocommerce_get_cart_item_from_session', array( __CLASS__, 'get_cart_item_from_session' ), 10, 3 );
+		add_filter( 'woocommerce_get_item_data', array( __CLASS__, 'display_switch_item_data' ), 10, 2 );
+		add_filter( 'wc_add_to_cart_message_html', array( __CLASS__, 'custom_switch_add_to_cart_message' ), 10, 2 );
+		add_filter( 'woocommerce_add_to_cart_redirect', array( __CLASS__, 'redirect_switch_to_checkout' ), 20, 1 );
 		add_action( 'woocommerce_before_calculate_totals', array( __CLASS__, 'calculate_prorated_switch_totals' ), 30, 1 );
 		add_action( 'woocommerce_checkout_order_processed', array( __CLASS__, 'process_switch_order' ), 50, 3 );
+		add_action( 'woocommerce_store_api_checkout_order_processed', array( __CLASS__, 'process_blocks_switch_order' ), 50, 1 );
 		add_action( 'woocommerce_order_status_completed', array( __CLASS__, 'complete_switch_for_order' ), 10, 1 );
 		add_action( 'woocommerce_order_status_processing', array( __CLASS__, 'complete_switch_for_order' ), 10, 1 );
+		add_action( 'woocommerce_order_status_on-hold', array( __CLASS__, 'complete_switch_for_order' ), 10, 1 );
 	}
 
 	/**
@@ -45,11 +50,18 @@ class ULX_Switcher {
 		if ( isset( $_GET['switch-subscription'] ) && isset( $_GET['item'] ) ) { // phpcs:ignore WordPress.Security.NonceVerification
 			return ulx_get_option( 'switch_button_text', __( 'Upgrade or Downgrade', 'ulixes-subscriptions' ) );
 		}
+		if ( is_user_logged_in() && $product && ulx_is_subscription_product( $product ) && 'no' !== ulx_get_option( 'allow_switching_variable', 'yes' ) ) {
+			$check_id = $product->get_parent_id() ? $product->get_parent_id() : $product->get_id();
+			if ( ulx_user_has_subscription( get_current_user_id(), $check_id, 'active' ) ) {
+				return ulx_get_option( 'switch_button_text', __( 'Upgrade or Downgrade', 'ulixes-subscriptions' ) );
+			}
+		}
 		return $text;
 	}
 
 	/**
-	 * Attach `subscription_switch` metadata when adding a product to cart from a switch link.
+	 * Attach `subscription_switch` metadata when adding a product to cart from a switch link
+	 * or when a logged-in customer with an active subscription to this variable product selects a new variation.
 	 *
 	 * @param array $cart_item_data Cart item data.
 	 * @param int   $product_id     Product ID.
@@ -58,18 +70,35 @@ class ULX_Switcher {
 	 */
 	public static function add_switch_cart_item_data( $cart_item_data, $product_id, $variation_id ) {
 		// phpcs:disable WordPress.Security.NonceVerification
-		if ( empty( $_GET['switch-subscription'] ) || empty( $_GET['item'] ) ) {
-			return $cart_item_data;
+		if ( empty( $variation_id ) && ! empty( $_REQUEST['variation_id'] ) ) {
+			$variation_id = absint( $_REQUEST['variation_id'] );
 		}
-		$subscription_id = absint( $_GET['switch-subscription'] );
-		$item_id         = absint( $_GET['item'] );
-		$subscription    = ulx_get_subscription( $subscription_id );
-		if ( ! $subscription || (int) $subscription->get_user_id() !== get_current_user_id() ) {
-			return $cart_item_data;
+		$maybe_parent = wp_get_post_parent_id( $product_id );
+		if ( $maybe_parent > 0 ) {
+			$variation_id = (int) $product_id;
+			$product_id   = (int) $maybe_parent;
+		}
+		$subscription_id = ! empty( $_GET['switch-subscription'] ) ? absint( $_GET['switch-subscription'] ) : 0;
+		$item_id         = ! empty( $_GET['item'] ) ? absint( $_GET['item'] ) : 0;
+		$subscription    = $subscription_id ? ulx_get_subscription( $subscription_id ) : false;
+		$existing_item   = null;
+
+		if ( $subscription && (int) $subscription->get_user_id() === get_current_user_id() && $item_id ) {
+			$existing_item = $subscription->get_item( $item_id );
+		} elseif ( is_user_logged_in() && $variation_id > 0 && 'no' !== ulx_get_option( 'allow_switching_variable', 'yes' ) ) {
+			$subscription = ulx_get_user_subscription_for_product( get_current_user_id(), $product_id, array( 'active', 'on-hold' ) );
+			if ( $subscription && ! $subscription->has_product( $variation_id ) ) {
+				foreach ( $subscription->get_items() as $sub_item_id => $sub_item ) {
+					if ( (int) $sub_item->get_product_id() === (int) $product_id ) {
+						$item_id       = $sub_item_id;
+						$existing_item = $sub_item;
+						break;
+					}
+				}
+			}
 		}
 
-		$existing_item = $subscription->get_item( $item_id );
-		if ( ! $existing_item || ! ulx_can_item_be_switched_by_user( $subscription, $existing_item ) ) {
+		if ( ! $subscription || ! $existing_item || ! ulx_can_item_be_switched_by_user( $subscription, $existing_item ) ) {
 			return $cart_item_data;
 		}
 
@@ -110,6 +139,66 @@ class ULX_Switcher {
 			$cart_item_data['subscription_switch'] = $values['subscription_switch'];
 		}
 		return $cart_item_data;
+	}
+
+	/**
+	 * Display switch badge in Cart and Checkout item metadata so customer clearly sees they are upgrading/switching their existing subscription.
+	 *
+	 * @param array $item_data Item data rows.
+	 * @param array $cart_item Cart item.
+	 * @return array
+	 */
+	public static function display_switch_item_data( $item_data, $cart_item ) {
+		if ( ! empty( $cart_item['subscription_switch']['subscription_id'] ) ) {
+			$sub_id    = absint( $cart_item['subscription_switch']['subscription_id'] );
+			$direction = isset( $cart_item['subscription_switch']['upgraded_or_downgraded'] ) ? $cart_item['subscription_switch']['upgraded_or_downgraded'] : 'switched';
+			$label     = 'upgraded' === $direction ? __( 'Upgrading Subscription', 'ulixes-subscriptions' ) : ( 'downgraded' === $direction ? __( 'Downgrading Subscription', 'ulixes-subscriptions' ) : __( 'Switching Subscription', 'ulixes-subscriptions' ) );
+			$item_data[] = array(
+				'key'   => $label,
+				'value' => '#' . $sub_id,
+			);
+		}
+		return $item_data;
+	}
+
+	/**
+	 * Customize add-to-cart message when switching plans to show the exact variation name and subscription number.
+	 *
+	 * @param string $message  HTML message.
+	 * @param array  $products Products array.
+	 * @return string
+	 */
+	public static function custom_switch_add_to_cart_message( $message, $products ) {
+		$switches = ulx_cart_contains_switches();
+		if ( empty( $switches ) || empty( WC()->cart ) ) {
+			return $message;
+		}
+		foreach ( WC()->cart->get_cart() as $cart_item ) {
+			if ( ! empty( $cart_item['subscription_switch']['subscription_id'] ) && ! empty( $cart_item['data'] ) ) {
+				$sub_id    = absint( $cart_item['subscription_switch']['subscription_id'] );
+				$prod_name = $cart_item['data']->get_name();
+				return sprintf(
+					/* translators: 1: variation name, 2: subscription ID */
+					esc_html__( 'Plan change to "%1$s" for Subscription #%2$s has been added to your cart. Complete checkout below to apply your upgrade/downgrade.', 'ulixes-subscriptions' ),
+					esc_html( $prod_name ),
+					esc_html( $sub_id )
+				);
+			}
+		}
+		return $message;
+	}
+
+	/**
+	 * Redirect directly to Checkout when a customer adds a subscription upgrade/downgrade switch to the cart.
+	 *
+	 * @param string $url Redirect URL.
+	 * @return string
+	 */
+	public static function redirect_switch_to_checkout( $url ) {
+		if ( ulx_cart_contains_switches() ) {
+			return wc_get_checkout_url();
+		}
+		return $url;
 	}
 
 	/**
@@ -162,7 +251,7 @@ class ULX_Switcher {
 			$apportion_price = ulx_get_option( 'apportion_recurring_price', 'no' );
 			$should_prorate  = ( 'yes' === $apportion_price || 'yes-upgrade' === $apportion_price ) || ( ( 'virtual' === $apportion_price || 'virtual-upgrade' === $apportion_price ) && $product->is_virtual() );
 
-			$initial_amount = 0;
+			$initial_amount = (float) ulx_get_product_price( $product );
 			if ( $should_prorate ) {
 				$next_payment = $subscription->get_time( 'next_payment' );
 				$last_order   = $subscription->get_last_order( 'all', array( 'parent', 'renewal' ) );
@@ -171,18 +260,32 @@ class ULX_Switcher {
 				$days_in_old_period = max( 1, ulx_days_between( $last_time, $next_payment ) );
 				$days_remaining     = max( 0, ulx_days_between( time(), $next_payment ) );
 
-				$old_daily = ( (float) $old_item->get_subtotal() / max( 1, $old_item->get_quantity() ) ) / $days_in_old_period;
-				$new_daily = self::get_price_per_day( $product );
-
-				$diff = ( $new_daily - $old_daily ) * $days_remaining;
-				if ( $diff > 0 ) {
-					$initial_amount = ulx_round( $diff );
+				$old_daily      = ( (float) $old_item->get_subtotal() / max( 1, $old_item->get_quantity() ) ) / $days_in_old_period;
+				$old_credit     = $old_daily * $days_remaining;
+				$new_period     = ulx_get_product_period( $product );
+				$new_interval   = ulx_get_product_interval( $product );
+				if ( $new_period === $subscription->get_billing_period() && (int) $new_interval === (int) $subscription->get_billing_interval() ) {
+					$new_daily      = self::get_price_per_day( $product );
+					$diff           = ( $new_daily - $old_daily ) * $days_remaining;
+					$initial_amount = $diff > 0 ? ulx_round( $diff ) : 0;
+				} else {
+					$diff           = $initial_amount - $old_credit;
+					$initial_amount = $diff > 0 ? ulx_round( $diff ) : 0;
 				}
 			}
 
 			$product->update_meta_data( '_subscription_sign_up_fee', $sign_up_fee );
 			$product->set_price( $initial_amount );
 		}
+	}
+
+	/**
+	 * Blocks checkout hook for switch orders.
+	 *
+	 * @param WC_Order $order Order.
+	 */
+	public static function process_blocks_switch_order( $order ) {
+		self::process_switch_order( $order->get_id(), array(), $order );
 	}
 
 	/**
@@ -204,10 +307,13 @@ class ULX_Switcher {
 		foreach ( $switches as $cart_key => $switch_info ) {
 			ulx_add_order_subscription_relation( $order, $switch_info['subscription_id'], 'switch' );
 		}
+		if ( $order->has_status( array( 'processing', 'completed', 'on-hold' ) ) ) {
+			self::complete_switch_for_order( $order->get_id() );
+		}
 	}
 
 	/**
-	 * When a switch order completes, update the subscription's line items and totals.
+	 * When a switch order completes, update the subscription's line items, schedule, and totals.
 	 *
 	 * @param int $order_id Order ID.
 	 */
@@ -237,7 +343,9 @@ class ULX_Switcher {
 
 			$product = $order_item->get_product();
 			if ( $product ) {
-				$recurring_price = wc_get_price_excluding_tax( $product, array( 'price' => $product->get_regular_price() ?: $product->get_price() ) );
+				$raw_price       = $product->get_meta( '_subscription_price', true );
+				$base_price      = '' !== $raw_price ? (float) $raw_price : (float) ( $product->get_regular_price() ?: $product->get_price() );
+				$recurring_price = wc_get_price_excluding_tax( $product, array( 'price' => $base_price ) );
 				$subscription->add_product(
 					$product,
 					$order_item->get_quantity(),
@@ -246,8 +354,19 @@ class ULX_Switcher {
 						'total'    => $recurring_price * $order_item->get_quantity(),
 					)
 				);
-				$subscription->set_billing_period( ulx_get_product_period( $product ) );
-				$subscription->set_billing_interval( ulx_get_product_interval( $product ) );
+				$new_period   = ulx_get_product_period( $product );
+				$new_interval = ulx_get_product_interval( $product );
+				$subscription->set_billing_period( $new_period );
+				$subscription->set_billing_interval( $new_interval );
+
+				$next_payment = ulx_add_time( $new_interval, $new_period, time() );
+				$end_date     = ulx_get_product_expiration_date( $product, time() );
+				$subscription->update_dates(
+					array(
+						'next_payment' => ulx_date_to_mysql( $next_payment ),
+						'end'          => $end_date ? $end_date : 0,
+					)
+				);
 			}
 
 			$subscription->calculate_totals();
