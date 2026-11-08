@@ -36,10 +36,49 @@ class ULX_Checkout {
 	 * @return bool
 	 */
 	public static function require_registration_for_subscriptions( $required ) {
-		if ( ulx_cart_contains_subscription() && ! is_user_logged_in() ) {
+		if ( ulx_cart_contains_subscription() && ! is_user_logged_in() && 'yes' === get_option( 'woocommerce_enable_signup_and_login_from_checkout' ) ) {
 			$required = true;
 		}
 		return $required;
+	}
+
+	/**
+	 * Ensure the parent order has a valid WordPress customer ID (links existing user by billing email or creates one).
+	 *
+	 * @param WC_Order $order Order.
+	 * @return int Customer ID.
+	 */
+	public static function resolve_customer_for_order( $order ) {
+		$customer_id = (int) $order->get_customer_id();
+		if ( $customer_id > 0 ) {
+			return $customer_id;
+		}
+		$email = sanitize_email( $order->get_billing_email() );
+		if ( ! $email ) {
+			return 0;
+		}
+		$existing_user = get_user_by( 'email', $email );
+		if ( $existing_user ) {
+			$customer_id = (int) $existing_user->ID;
+		} elseif ( function_exists( 'wc_create_new_customer' ) ) {
+			$new_id = wc_create_new_customer(
+				$email,
+				'',
+				wp_generate_password(),
+				array(
+					'first_name' => $order->get_billing_first_name(),
+					'last_name'  => $order->get_billing_last_name(),
+				)
+			);
+			if ( ! is_wp_error( $new_id ) ) {
+				$customer_id = (int) $new_id;
+			}
+		}
+		if ( $customer_id > 0 ) {
+			$order->set_customer_id( $customer_id );
+			$order->save();
+		}
+		return $customer_id;
 	}
 
 	/**
@@ -126,12 +165,13 @@ class ULX_Checkout {
 	 * @return ULX_Subscription|WP_Error
 	 */
 	public static function create_subscription( $order, $recurring_cart, $posted_data = array() ) {
+		$customer_id  = self::resolve_customer_for_order( $order );
 		$start_date   = getattr_or_prop( $recurring_cart, 'start_date', current_time( 'mysql', true ) );
 		$subscription = ulx_create_subscription(
 			array(
 				'status'             => 'pending',
 				'order_id'           => $order->get_id(),
-				'customer_id'        => $order->get_customer_id(),
+				'customer_id'        => $customer_id,
 				'customer_note'      => $order->get_customer_note(),
 				'billing_period'     => getattr_or_prop( $recurring_cart, 'subscription_period', 'month' ),
 				'billing_interval'   => getattr_or_prop( $recurring_cart, 'subscription_period_interval', 1 ),
@@ -241,7 +281,8 @@ class ULX_Checkout {
 			return;
 		}
 
-		$start_date = $order->get_date_created() ? gmdate( 'Y-m-d H:i:s', $order->get_date_created()->getTimestamp() ) : current_time( 'mysql', true );
+		$customer_id = self::resolve_customer_for_order( $order );
+		$start_date  = $order->get_date_created() ? gmdate( 'Y-m-d H:i:s', $order->get_date_created()->getTimestamp() ) : current_time( 'mysql', true );
 
 		foreach ( $groups as $group_items ) {
 			$first_product = $group_items[0]['product'];
@@ -252,7 +293,7 @@ class ULX_Checkout {
 				array(
 					'status'             => 'pending',
 					'order_id'           => $order->get_id(),
-					'customer_id'        => $order->get_customer_id(),
+					'customer_id'        => $customer_id,
 					'customer_note'      => $order->get_customer_note(),
 					'billing_period'     => $period,
 					'billing_interval'   => $interval,

@@ -90,6 +90,11 @@ if ( ! function_exists( 'ulx_init_plugin' ) ) {
 			add_action( 'admin_notices', 'ulx_missing_wc_notice' );
 			return;
 		}
+		if ( '1.0.2' !== get_option( 'ulx_db_migration_version' ) ) {
+			update_option( 'ulx_accept_manual_renewals', 'yes' );
+			delete_option( 'woocommerce_ulx_test_gateway_settings' );
+			update_option( 'ulx_db_migration_version', '1.0.2' );
+		}
 		require_once ULX_PLUGIN_DIR . 'includes/class-ulx-plugin.php';
 		ULX_Plugin::instance();
 	}
@@ -124,7 +129,7 @@ if ( ! function_exists( 'ulx_activate' ) ) {
 		$defaults = array(
 			'ulx_add_to_cart_button_text'               => __( 'Sign up now', 'ulixes-subscriptions' ),
 			'ulx_order_button_text'                     => __( 'Sign up now', 'ulixes-subscriptions' ),
-			'ulx_accept_manual_renewals'                => 'no',
+			'ulx_accept_manual_renewals'                => 'yes',
 			'ulx_turn_off_automatic_payments'           => 'no',
 			'ulx_enable_retry'                          => 'no',
 			'ulx_allow_switching_simple'                => 'no',

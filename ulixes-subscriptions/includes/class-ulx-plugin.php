@@ -100,7 +100,6 @@ final class ULX_Plugin {
 		require_once $dir . 'class-ulx-order-hooks.php';
 		require_once $dir . 'class-ulx-privacy.php';
 		require_once $dir . 'class-ulx-shortcodes.php';
-		require_once $dir . 'gateways/class-ulx-gateway-manual-test.php';
 		require_once $dir . 'api/class-ulx-rest-subscriptions-controller.php';
 		require_once $dir . 'blocks/class-ulx-blocks-integration.php';
 
@@ -152,8 +151,6 @@ final class ULX_Plugin {
 		ULX_REST_Subscriptions_Controller::init();
 		ULX_Blocks_Integration::init();
 
-		add_filter( 'woocommerce_payment_gateways', array( $this, 'add_gateways' ) );
-
 		if ( is_admin() ) {
 			ULX_Admin::init();
 			ULX_Admin_Product::init();
@@ -162,17 +159,6 @@ final class ULX_Plugin {
 			ULX_Admin_Meta_Boxes::init();
 			ULX_Admin_Reports::init();
 		}
-	}
-
-	/**
-	 * Register the test gateway (only shown when WP_DEBUG or enabled in settings).
-	 *
-	 * @param array $gateways Gateways.
-	 * @return array
-	 */
-	public function add_gateways( $gateways ) {
-		$gateways[] = 'ULX_Gateway_Manual_Test';
-		return $gateways;
 	}
 
 	/**

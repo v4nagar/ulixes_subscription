@@ -61,29 +61,31 @@ class ULX_Payment_Gateways {
 			return $available_gateways;
 		}
 
-		$accept_manual      = ulx_option_is_yes( 'accept_manual_renewals' ) || ulx_automatic_payments_disabled();
-		$recurring_carts    = isset( WC()->cart->recurring_carts ) ? count( WC()->cart->recurring_carts ) : 0;
-		$multiple_subs      = $recurring_carts > 1;
+		$accept_manual   = 'yes' === ulx_get_option( 'accept_manual_renewals', 'yes' ) || ulx_automatic_payments_disabled();
+		$recurring_carts = isset( WC()->cart->recurring_carts ) ? count( WC()->cart->recurring_carts ) : 0;
+		$multiple_subs   = $recurring_carts > 1;
+		$filtered        = $available_gateways;
 
-		foreach ( $available_gateways as $gateway_id => $gateway ) {
+		foreach ( $filtered as $gateway_id => $gateway ) {
 			if ( $is_change_payment ) {
-				if ( ! $gateway->supports( 'subscription_payment_method_change_customer' ) && ! $gateway->supports( 'subscriptions' ) ) {
-					unset( $available_gateways[ $gateway_id ] );
+				if ( ! $gateway->supports( 'subscription_payment_method_change_customer' ) && ! $gateway->supports( 'subscriptions' ) && ! $accept_manual ) {
+					unset( $filtered[ $gateway_id ] );
 				}
 				continue;
 			}
 
 			if ( $multiple_subs && ! $gateway->supports( 'multiple_subscriptions' ) && ! $accept_manual ) {
-				unset( $available_gateways[ $gateway_id ] );
+				unset( $filtered[ $gateway_id ] );
 				continue;
 			}
 
 			if ( ! $accept_manual && ! $gateway->supports( 'subscriptions' ) ) {
-				unset( $available_gateways[ $gateway_id ] );
+				unset( $filtered[ $gateway_id ] );
 			}
 		}
 
-		return $available_gateways;
+		// Never strip all gateways if no automatic subscription gateway is configured yet.
+		return ! empty( $filtered ) ? $filtered : $available_gateways;
 	}
 
 	/**
@@ -143,7 +145,23 @@ class ULX_Payment_Gateways {
 	 */
 	public static function get_payment_meta( $subscription ) {
 		$payment_meta = array(
-			'stripe' => array(
+			'razorpay' => array(
+				'post_meta' => array(
+					'_razorpay_subscription_id' => array(
+						'value' => $subscription->get_meta( '_razorpay_subscription_id', true ),
+						'label' => __( 'Razorpay Subscription ID', 'ulixes-subscriptions' ),
+					),
+					'_razorpay_token'           => array(
+						'value' => $subscription->get_meta( '_razorpay_token', true ),
+						'label' => __( 'Razorpay Token ID', 'ulixes-subscriptions' ),
+					),
+					'_razorpay_customer_id'     => array(
+						'value' => $subscription->get_meta( '_razorpay_customer_id', true ),
+						'label' => __( 'Razorpay Customer ID', 'ulixes-subscriptions' ),
+					),
+				),
+			),
+			'stripe'   => array(
 				'post_meta' => array(
 					'_stripe_customer_id' => array(
 						'value' => $subscription->get_meta( '_stripe_customer_id', true ),

@@ -127,7 +127,7 @@ class ULX_Admin_Settings {
 				'desc'          => __( 'Accept Manual Renewals', 'ulixes-subscriptions' ),
 				'id'            => 'ulx_accept_manual_renewals',
 				'type'          => 'checkbox',
-				'default'       => 'no',
+				'default'       => 'yes',
 				'checkboxgroup' => 'start',
 			),
 			array(
