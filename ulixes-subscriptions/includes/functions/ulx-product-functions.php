@@ -42,8 +42,26 @@ function ulx_maybe_get_product( $product ) {
  */
 function ulx_is_subscription_product( $product ) {
 	$product = ulx_maybe_get_product( $product );
-	$is      = $product && $product->is_type( ulx_get_subscription_product_types() );
-	return (bool) apply_filters( 'ulx_is_subscription', $is, $product ? $product->get_id() : 0, $product );
+	if ( ! $product ) {
+		return false;
+	}
+	$is = $product->is_type( ulx_get_subscription_product_types() );
+	if ( ! $is ) {
+		$sub_price  = $product->get_meta( '_subscription_price', true );
+		$sub_period = $product->get_meta( '_subscription_period', true );
+		if ( '' !== $sub_price && null !== $sub_price && '' !== $sub_period ) {
+			$is = true;
+		} elseif ( $product->is_type( 'variable' ) ) {
+			foreach ( $product->get_children() as $child_id ) {
+				$child_price = get_post_meta( $child_id, '_subscription_price', true );
+				if ( '' !== $child_price && false !== $child_price ) {
+					$is = true;
+					break;
+				}
+			}
+		}
+	}
+	return (bool) apply_filters( 'ulx_is_subscription', $is, $product->get_id(), $product );
 }
 
 /**

@@ -18,10 +18,72 @@ class ULX_Admin {
 	 * Init hooks.
 	 */
 	public static function init() {
+		add_action( 'admin_menu', array( __CLASS__, 'ensure_subscriptions_menu' ), 60 );
 		add_action( 'admin_enqueue_scripts', array( __CLASS__, 'enqueue_admin_assets' ) );
 		add_action( 'admin_notices', array( __CLASS__, 'maybe_show_staging_notice' ) );
 		add_action( 'admin_init', array( __CLASS__, 'maybe_handle_staging_action' ) );
 		add_action( 'woocommerce_system_status_report', array( __CLASS__, 'render_system_status_section' ) );
+	}
+
+	/**
+	 * Ensure "Subscriptions" appears in the WooCommerce submenu right below "Orders".
+	 */
+	public static function ensure_subscriptions_menu() {
+		global $submenu;
+		if ( ! isset( $submenu['woocommerce'] ) || ! is_array( $submenu['woocommerce'] ) ) {
+			return;
+		}
+
+		$sub_slugs = array(
+			'edit.php?post_type=shop_subscription',
+			'wc-orders--shop_subscription',
+			'admin.php?page=wc-orders--shop_subscription',
+		);
+
+		$found_item = null;
+		$found_key  = null;
+		foreach ( $submenu['woocommerce'] as $key => $item ) {
+			if ( isset( $item[2] ) && in_array( $item[2], $sub_slugs, true ) ) {
+				$found_item = $item;
+				$found_key  = $key;
+				break;
+			}
+		}
+
+		if ( null === $found_item ) {
+			$target_slug = 'edit.php?post_type=shop_subscription';
+			add_submenu_page(
+				'woocommerce',
+				__( 'Subscriptions', 'ulixes-subscriptions' ),
+				__( 'Subscriptions', 'ulixes-subscriptions' ),
+				'manage_woocommerce',
+				$target_slug
+			);
+			foreach ( $submenu['woocommerce'] as $key => $item ) {
+				if ( isset( $item[2] ) && $target_slug === $item[2] ) {
+					$found_item = $item;
+					$found_key  = $key;
+					break;
+				}
+			}
+		}
+
+		if ( null !== $found_item && null !== $found_key ) {
+			unset( $submenu['woocommerce'][ $found_key ] );
+			$reordered = array();
+			$inserted  = false;
+			foreach ( $submenu['woocommerce'] as $item ) {
+				$reordered[] = $item;
+				if ( ! $inserted && isset( $item[2] ) && in_array( $item[2], array( 'edit.php?post_type=shop_order', 'wc-orders', 'admin.php?page=wc-orders' ), true ) ) {
+					$reordered[] = $found_item;
+					$inserted    = true;
+				}
+			}
+			if ( ! $inserted ) {
+				$reordered[] = $found_item;
+			}
+			$submenu['woocommerce'] = $reordered; // phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited
+		}
 	}
 
 	/**

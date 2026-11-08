@@ -184,14 +184,6 @@ class ULX_Cart {
 			if ( empty( $cart_item['data'] ) || ! ulx_is_subscription_product( $cart_item['data'] ) ) {
 				continue;
 			}
-			$product  = $cart_item['data'];
-			$length   = ulx_get_product_length( $product );
-			$interval = ulx_get_product_interval( $product );
-			$trial    = ulx_get_product_trial_length( $product );
-			if ( $length > 0 && $length === $interval && 0 === $trial && ! ULX_Sync::is_product_synced( $product ) ) {
-				continue;
-			}
-
 			$key                                   = ulx_get_Recurring_cart_key( $cart_item );
 			$cart_groups[ $key ][ $cart_item_key ] = $cart_item;
 		}

@@ -18,7 +18,8 @@ class ULX_Post_Types {
 	 * Init.
 	 */
 	public static function init() {
-		add_action( 'woocommerce_after_register_post_type', array( __CLASS__, 'register_post_types' ), 6 );
+		add_action( 'woocommerce_after_register_post_type', array( __CLASS__, 'register_post_types' ), 5 );
+		add_action( 'init', array( __CLASS__, 'register_post_types' ), 6 );
 		add_action( 'init', array( __CLASS__, 'register_post_statuses' ), 9 );
 		add_filter( 'woocommerce_data_stores', array( __CLASS__, 'add_data_stores' ) );
 		add_filter( 'wc_order_statuses', array( __CLASS__, 'maybe_filter_order_statuses' ), 100 );
@@ -63,7 +64,7 @@ class ULX_Post_Types {
 					'map_meta_cap'                     => true,
 					'publicly_queryable'               => false,
 					'exclude_from_search'              => true,
-					'show_in_menu'                     => current_user_can( 'manage_woocommerce' ) ? 'woocommerce' : true,
+					'show_in_menu'                     => 'woocommerce',
 					'hierarchical'                     => false,
 					'show_in_nav_menus'                => false,
 					'rewrite'                          => false,
@@ -122,15 +123,11 @@ class ULX_Post_Types {
 	 */
 	public static function add_data_stores( $stores ) {
 		if ( ulx_is_hpos_enabled() && class_exists( 'ULX_Subscription_Data_Store_HPOS' ) ) {
-			$store = new ULX_Subscription_Data_Store_HPOS();
-			$store->init(
-				wc_get_container()->get( \Automattic\WooCommerce\Internal\DataStores\Orders\OrdersTableDataStoreMeta::class ),
-				wc_get_container()->get( \Automattic\WooCommerce\Internal\Utilities\DatabaseUtil::class ),
-				wc_get_container()->get( \Automattic\WooCommerce\Proxies\LegacyProxy::class )
-			);
-			$stores['subscription'] = $store;
+			$stores['subscription']      = 'ULX_Subscription_Data_Store_HPOS';
+			$stores['shop_subscription'] = 'ULX_Subscription_Data_Store_HPOS';
 		} else {
-			$stores['subscription'] = 'ULX_Subscription_Data_Store_CPT';
+			$stores['subscription']      = 'ULX_Subscription_Data_Store_CPT';
+			$stores['shop_subscription'] = 'ULX_Subscription_Data_Store_CPT';
 		}
 		$stores['product-subscription']           = 'ULX_Product_Subscription_Data_Store';
 		$stores['product-variable-subscription']  = 'WC_Product_Variable_Data_Store_CPT';

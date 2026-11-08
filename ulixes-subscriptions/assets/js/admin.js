@@ -7,7 +7,16 @@
 (function ($) {
 	'use strict';
 
+	function enableVariableSubscriptionUI() {
+		$('.show_if_variable').addClass('show_if_variable-subscription');
+		$('.hide_if_variable').addClass('hide_if_variable-subscription');
+		$('.enable_variation').addClass('show_if_variable-subscription');
+		$('.variations_tab').addClass('show_if_variable-subscription');
+		$('.show_if_simple').addClass('show_if_subscription');
+	}
+
 	function toggleSubscriptionProductFields() {
+		enableVariableSubscriptionUI();
 		var productType = $('select#product-type').val();
 		if ('subscription' === productType) {
 			$('.show_if_subscription').show();
@@ -16,6 +25,9 @@
 		} else if ('variable-subscription' === productType) {
 			$('.show_if_variable-subscription').show();
 			$('.show_if_variable').show();
+			$('.enable_variation').show();
+			$('.variations_tab').show();
+			$('.variable_subscription_pricing').show();
 		}
 	}
 

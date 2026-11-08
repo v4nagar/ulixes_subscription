@@ -18,12 +18,27 @@ class ULX_Product_Hooks {
 	 * Init hooks.
 	 */
 	public static function init() {
+		add_action( 'init', array( __CLASS__, 'ensure_product_type_terms' ), 20 );
 		add_filter( 'product_type_selector', array( __CLASS__, 'add_product_types' ) );
 		add_filter( 'woocommerce_product_class', array( __CLASS__, 'product_class' ), 10, 4 );
 		add_action( 'woocommerce_subscription_add_to_cart', array( __CLASS__, 'subscription_add_to_cart' ), 30 );
 		add_action( 'woocommerce_variable-subscription_add_to_cart', array( __CLASS__, 'variable_subscription_add_to_cart' ), 30 );
 		add_filter( 'woocommerce_is_sold_individually', array( __CLASS__, 'maybe_sold_individually' ), 10, 2 );
 		add_action( 'before_delete_post', array( __CLASS__, 'maybe_protect_deleting_variation' ) );
+	}
+
+	/**
+	 * Ensure `subscription` and `variable-subscription` terms exist in the `product_type` taxonomy.
+	 */
+	public static function ensure_product_type_terms() {
+		if ( ! taxonomy_exists( 'product_type' ) ) {
+			return;
+		}
+		foreach ( array( 'subscription', 'variable-subscription' ) as $type_slug ) {
+			if ( ! get_term_by( 'slug', $type_slug, 'product_type' ) ) {
+				wp_insert_term( $type_slug, 'product_type' );
+			}
+		}
 	}
 
 	/**
@@ -55,6 +70,11 @@ class ULX_Product_Hooks {
 			return 'ULX_Product_Variable_Subscription';
 		}
 		if ( 'product_variation' === $post_type ) {
+			$var_sub_price = get_post_meta( $product_id, '_subscription_price', true );
+			$var_period    = get_post_meta( $product_id, '_subscription_period', true );
+			if ( '' !== $var_sub_price && false !== $var_sub_price && '' !== $var_period ) {
+				return 'ULX_Product_Subscription_Variation';
+			}
 			$parent_id = wp_get_post_parent_id( $product_id );
 			if ( $parent_id ) {
 				$terms = get_the_terms( $parent_id, 'product_type' );

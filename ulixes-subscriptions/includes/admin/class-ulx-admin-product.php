@@ -28,6 +28,7 @@ class ULX_Admin_Product {
 	 * Init hooks.
 	 */
 	public static function init() {
+		add_filter( 'woocommerce_product_data_tabs', array( __CLASS__, 'product_data_tabs' ), 20 );
 		add_action( 'woocommerce_product_options_general_product_data', array( __CLASS__, 'render_simple_subscription_fields' ) );
 		add_action( 'woocommerce_product_options_shipping', array( __CLASS__, 'render_one_time_shipping_field' ) );
 		add_action( 'woocommerce_product_options_advanced', array( __CLASS__, 'render_limit_subscription_field' ) );
@@ -37,6 +38,23 @@ class ULX_Admin_Product {
 		// Variations.
 		add_action( 'woocommerce_product_after_variable_attributes', array( __CLASS__, 'render_variation_subscription_fields' ), 10, 3 );
 		add_action( 'woocommerce_save_product_variation', array( __CLASS__, 'save_variation_subscription_fields' ), 10, 2 );
+	}
+
+	/**
+	 * Ensure the Variations and Inventory tabs appear when "Variable subscription" is selected.
+	 *
+	 * @param array $tabs Product data tabs.
+	 * @return array
+	 */
+	public static function product_data_tabs( $tabs ) {
+		if ( isset( $tabs['variations']['class'] ) && is_array( $tabs['variations']['class'] ) ) {
+			$tabs['variations']['class'][] = 'show_if_variable-subscription';
+		}
+		if ( isset( $tabs['inventory']['class'] ) && is_array( $tabs['inventory']['class'] ) ) {
+			$tabs['inventory']['class'][] = 'show_if_subscription';
+			$tabs['inventory']['class'][] = 'show_if_variable-subscription';
+		}
+		return $tabs;
 	}
 
 	/**
@@ -236,7 +254,7 @@ class ULX_Admin_Product {
 
 		$one_time = isset( $_POST['_subscription_one_time_shipping'] ) ? 'yes' : 'no';
 		update_post_meta( $post_id, '_subscription_one_time_shipping', $one_time );
-		// phpcs:enable
+		// phpcs:enable WordPress.Security.NonceVerification
 	}
 
 	/**
@@ -250,7 +268,7 @@ class ULX_Admin_Product {
 		$one_time = isset( $_POST['_subscription_one_time_shipping'] ) ? 'yes' : 'no';
 		update_post_meta( $post_id, '_subscription_limit', $limit );
 		update_post_meta( $post_id, '_subscription_one_time_shipping', $one_time );
-		// phpcs:enable
+		// phpcs:enable WordPress.Security.NonceVerification
 	}
 
 	/**
@@ -337,9 +355,11 @@ class ULX_Admin_Product {
 		if ( isset( $_POST['variable_subscription_price'][ $i ] ) ) {
 			$price = wc_format_decimal( sanitize_text_field( wp_unslash( $_POST['variable_subscription_price'][ $i ] ) ) );
 			update_post_meta( $variation_id, '_subscription_price', $price );
-			update_post_meta( $variation_id, '_regular_price', $price );
-			if ( '' === get_post_meta( $variation_id, '_sale_price', true ) ) {
-				update_post_meta( $variation_id, '_price', $price );
+			if ( '' !== $price ) {
+				update_post_meta( $variation_id, '_regular_price', $price );
+				if ( '' === get_post_meta( $variation_id, '_sale_price', true ) ) {
+					update_post_meta( $variation_id, '_price', $price );
+				}
 			}
 		}
 
@@ -360,7 +380,7 @@ class ULX_Admin_Product {
 			$fee = wc_format_decimal( sanitize_text_field( wp_unslash( $_POST['variable_subscription_sign_up_fee'][ $i ] ) ) );
 			update_post_meta( $variation_id, '_subscription_sign_up_fee', $fee );
 		}
-		// phpcs:enable
+		// phpcs:enable WordPress.Security.NonceVerification
 	}
 }
 

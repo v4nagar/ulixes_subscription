@@ -223,10 +223,11 @@ class ULX_REST_Subscriptions_Controller {
 	 * @return WP_REST_Response|WP_Error
 	 */
 	public static function create_item( $request ) {
-		$sub = ulx_create_subscription(
+		$parent_id = absint( $request->get_param( 'parent_id' ) );
+		$sub       = ulx_create_subscription(
 			array(
 				'status'           => $request->get_param( 'status' ) ?: 'pending',
-				'order_id'         => absint( $request->get_param( 'parent_id' ) ),
+				'order_id'         => $parent_id,
 				'customer_id'      => absint( $request->get_param( 'customer_id' ) ),
 				'billing_period'   => $request->get_param( 'billing_period' ) ?: 'month',
 				'billing_interval' => $request->get_param( 'billing_interval' ) ? absint( $request->get_param( 'billing_interval' ) ) : 1,
@@ -239,7 +240,27 @@ class ULX_REST_Subscriptions_Controller {
 			return $sub;
 		}
 
+		if ( $parent_id ) {
+			$parent_order = wc_get_order( $parent_id );
+			if ( $parent_order ) {
+				ulx_copy_order_address( $parent_order, $sub );
+				if ( ! $request->get_param( 'payment_method' ) ) {
+					$sub->set_payment_method( $parent_order->get_payment_method() );
+					$sub->set_payment_method_title( $parent_order->get_payment_method_title() );
+				}
+			}
+		}
+
 		self::apply_request_fields( $sub, $request );
+
+		if ( ! $sub->get_date( 'next_payment' ) ) {
+			$calc_next = $sub->calculate_date( 'next_payment' );
+			if ( $calc_next ) {
+				$sub->update_dates( array( 'next_payment' => $calc_next ) );
+				$sub->save();
+			}
+		}
+
 		return rest_ensure_response( self::prepare_subscription_data( $sub ) );
 	}
 

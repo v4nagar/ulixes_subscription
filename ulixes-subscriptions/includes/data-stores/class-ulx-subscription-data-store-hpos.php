@@ -17,6 +17,24 @@ use Automattic\WooCommerce\Internal\DataStores\Orders\OrdersTableDataStore;
 class ULX_Subscription_Data_Store_HPOS extends OrdersTableDataStore {
 
 	/**
+	 * Constructor: auto-initialize dependencies from the WooCommerce DI container.
+	 */
+	public function __construct() {
+		if ( method_exists( $this, 'init' ) && function_exists( 'wc_get_container' ) ) {
+			try {
+				$container = wc_get_container();
+				$this->init(
+					$container->get( \Automattic\WooCommerce\Internal\DataStores\Orders\OrdersTableDataStoreMeta::class ),
+					$container->get( \Automattic\WooCommerce\Internal\Utilities\DatabaseUtil::class ),
+					$container->get( \Automattic\WooCommerce\Proxies\LegacyProxy::class )
+				);
+			} catch ( \Throwable $e ) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement.DetectedCatch
+				// Container not ready yet.
+			}
+		}
+	}
+
+	/**
 	 * Create without firing 'woocommerce_new_order'.
 	 *
 	 * @param ULX_Subscription $subscription Subscription.

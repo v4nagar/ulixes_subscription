@@ -20,6 +20,11 @@ class ULX_Checkout {
 	public static function init() {
 		add_action( 'woocommerce_checkout_order_processed', array( __CLASS__, 'process_checkout' ), 100, 3 );
 		add_action( 'woocommerce_store_api_checkout_order_processed', array( __CLASS__, 'process_blocks_checkout' ), 100, 1 );
+		add_action( 'woocommerce_checkout_order_processed', array( __CLASS__, 'ensure_subscriptions_for_order' ), 105, 1 );
+		add_action( 'woocommerce_store_api_checkout_order_processed', array( __CLASS__, 'ensure_subscriptions_for_order' ), 105, 1 );
+		add_action( 'woocommerce_order_status_processing', array( __CLASS__, 'ensure_subscriptions_for_order' ), 5, 1 );
+		add_action( 'woocommerce_order_status_completed', array( __CLASS__, 'ensure_subscriptions_for_order' ), 5, 1 );
+		add_action( 'woocommerce_order_status_on-hold', array( __CLASS__, 'ensure_subscriptions_for_order' ), 5, 1 );
 		add_filter( 'woocommerce_checkout_registration_required', array( __CLASS__, 'require_registration_for_subscriptions' ) );
 		add_action( 'woocommerce_checkout_create_order_line_item', array( __CLASS__, 'add_line_item_meta' ), 10, 4 );
 	}
@@ -189,6 +194,124 @@ class ULX_Checkout {
 
 		do_action( 'ulx_checkout_subscription_created', $subscription, $order, $recurring_cart );
 		return $subscription;
+	}
+
+	/**
+	 * Ensure subscriptions are created directly from order line items if `WC()->cart->recurring_carts`
+	 * was not available (e.g. Store API Checkout Blocks, REST API orders, or Admin orders).
+	 *
+	 * @param int|WC_Order $order_or_id Order or Order ID.
+	 */
+	public static function ensure_subscriptions_for_order( $order_or_id ) {
+		$order = $order_or_id instanceof WC_Order ? $order_or_id : wc_get_order( $order_or_id );
+		if ( ! $order || $order instanceof ULX_Subscription ) {
+			return;
+		}
+		if ( ulx_order_contains_renewal( $order ) || ulx_order_contains_switch( $order ) || ulx_order_contains_resubscribe( $order ) ) {
+			return;
+		}
+
+		$existing = ulx_get_subscriptions_for_order( $order->get_id(), array( 'order_type' => 'parent' ) );
+		if ( ! empty( $existing ) ) {
+			return;
+		}
+
+		$groups = array();
+		foreach ( $order->get_items( 'line_item' ) as $item_id => $item ) {
+			if ( ! ( $item instanceof WC_Order_Item_Product ) ) {
+				continue;
+			}
+			$product = $item->get_product();
+			if ( ! $product || ! ulx_is_subscription_product( $product ) ) {
+				continue;
+			}
+			$period   = ulx_get_product_period( $product );
+			$interval = ulx_get_product_interval( $product );
+			$length   = ulx_get_product_length( $product );
+			$trial_l  = ulx_get_product_trial_length( $product );
+			$trial_p  = ulx_get_product_trial_period( $product );
+			$key      = implode( '_', array( $period, $interval, $length, $trial_l, $trial_p ) );
+			$groups[ $key ][] = array(
+				'item'    => $item,
+				'product' => $product,
+			);
+		}
+
+		if ( empty( $groups ) ) {
+			return;
+		}
+
+		$start_date = $order->get_date_created() ? gmdate( 'Y-m-d H:i:s', $order->get_date_created()->getTimestamp() ) : current_time( 'mysql', true );
+
+		foreach ( $groups as $group_items ) {
+			$first_product = $group_items[0]['product'];
+			$period        = ulx_get_product_period( $first_product );
+			$interval      = ulx_get_product_interval( $first_product );
+
+			$subscription = ulx_create_subscription(
+				array(
+					'status'             => 'pending',
+					'order_id'           => $order->get_id(),
+					'customer_id'        => $order->get_customer_id(),
+					'customer_note'      => $order->get_customer_note(),
+					'billing_period'     => $period,
+					'billing_interval'   => $interval,
+					'start_date'         => $start_date,
+					'created_via'        => $order->get_created_via() ?: 'checkout',
+					'currency'           => $order->get_currency(),
+					'prices_include_tax' => $order->get_prices_include_tax() ? 'yes' : 'no',
+				)
+			);
+
+			if ( is_wp_error( $subscription ) ) {
+				continue;
+			}
+
+			ulx_copy_order_address( $order, $subscription );
+			$subscription->set_payment_method( $order->get_payment_method() );
+			$subscription->set_payment_method_title( $order->get_payment_method_title() );
+
+			$gateway = ulx_get_payment_gateway( $order->get_payment_method() );
+			$manual  = ! $gateway || ! $gateway->supports( 'subscriptions' ) || ulx_automatic_payments_disabled();
+			$subscription->set_requires_manual_renewal( $manual );
+
+			$trial_length = ulx_get_product_trial_length( $first_product );
+			if ( $trial_length > 0 ) {
+				$subscription->set_trial_period( ulx_get_product_trial_period( $first_product ) );
+			}
+
+			$trial_end    = ulx_get_product_trial_expiration_date( $first_product, $start_date );
+			$next_payment = ulx_get_product_first_renewal_payment_date( $first_product, $start_date );
+			$end_date     = ulx_get_product_expiration_date( $first_product, $start_date );
+
+			if ( ! $next_payment && 0 === $trial_length ) {
+				$next_payment = ulx_date_to_mysql( ulx_add_time( $interval, $period, ulx_date_to_time( $start_date ) ) );
+			}
+
+			$subscription->update_dates(
+				array(
+					'trial_end'    => $trial_end,
+					'next_payment' => $next_payment,
+					'end'          => $end_date,
+				)
+			);
+
+			foreach ( $group_items as $entry ) {
+				$new_item = clone $entry['item'];
+				$new_item->set_id( 0 );
+				$new_item->set_order_id( $subscription->get_id() );
+				$subscription->add_item( $new_item );
+			}
+
+			$subscription->calculate_totals();
+			$subscription->save();
+
+			if ( $order->has_status( array( 'processing', 'completed' ) ) && $subscription->can_be_updated_to( 'active' ) ) {
+				$subscription->update_status( 'active', __( 'Subscription activated by parent order payment.', 'ulixes-subscriptions' ) );
+			} elseif ( $order->has_status( 'on-hold' ) && $subscription->can_be_updated_to( 'on-hold' ) ) {
+				$subscription->update_status( 'on-hold', __( 'Subscription placed on hold by parent order.', 'ulixes-subscriptions' ) );
+			}
+		}
 	}
 }
 
