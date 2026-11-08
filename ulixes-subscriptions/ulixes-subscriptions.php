@@ -1,7 +1,7 @@
 <?php
 /**
  * Plugin Name:       Ulixes Subscriptions
- * Plugin URI:        https://billing.ulixes.in/
+ * Plugin URI:        https://ulixes.in/
  * Description:       Sell products and services with recurring payments in WooCommerce. Subscription products, free trials, sign-up fees, renewals, retries, switching, synchronisation, emails, reports and REST API.
  * Version:           1.0.0
  * Author:            Ulixes

@@ -2,13 +2,13 @@
 Contributors: ulixes
 Tags: woocommerce, subscriptions, recurring payments, memberships, billing
 Requires at least: 6.0
-Tested up to: 6.7
+Tested up to: 7.1
 Requires PHP: 7.4
 Stable tag: 1.0.0
 License: GPLv3 or later
 License URI: https://www.gnu.org/licenses/gpl-3.0.html
 
-Sell products and services with recurring payments in WooCommerce. Full support for simple and variable subscriptions, free trials, sign-up fees, renewals, failed payment retries, switching, and synchronisation.
+Sell products and services with recurring payments, free trials, sign-up fees, renewals, and switching in WooCommerce.
 
 == Description ==
 

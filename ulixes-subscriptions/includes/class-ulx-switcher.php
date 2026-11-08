@@ -93,7 +93,7 @@ class ULX_Switcher {
 			'next_payment_timestamp' => $subscription->get_time( 'next_payment' ),
 			'upgraded_or_downgraded' => $direction,
 		);
-		// phpcs:enable
+		// phpcs:enable WordPress.Security.NonceVerification
 		return $cart_item_data;
 	}
 
