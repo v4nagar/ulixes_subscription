@@ -156,7 +156,11 @@ class ULX_Manager {
 		$subscription->update_dates( array( 'next_payment' => $next_payment ) );
 
 		if ( $subscription->get_total() > 0 && $subscription->can_be_updated_to( 'on-hold' ) ) {
-			$subscription->update_status( 'on-hold', $order_note );
+			try {
+				$subscription->update_status( 'on-hold', $order_note );
+			} catch ( Throwable $e ) {
+				ulx_log( 'prepare_renewal update_status on-hold error: ' . $e->getMessage(), 'error' );
+			}
 		}
 
 		$renewal_order = ulx_create_renewal_order( $subscription );
@@ -168,7 +172,11 @@ class ULX_Manager {
 		if ( 0 == $renewal_order->get_total() ) { // phpcs:ignore
 			$renewal_order->payment_complete();
 			if ( $subscription->can_be_updated_to( 'active' ) ) {
-				$subscription->update_status( 'active', __( 'Free renewal completed.', 'ulixes-subscriptions' ) );
+				try {
+					$subscription->update_status( 'active', __( 'Free renewal completed.', 'ulixes-subscriptions' ) );
+				} catch ( Throwable $e ) {
+					ulx_log( 'prepare_renewal update_status active error: ' . $e->getMessage(), 'error' );
+				}
 			}
 			return;
 		}

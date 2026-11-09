@@ -199,49 +199,14 @@ class ULX_Post_Types {
 	}
 
 	/**
-	 * On subscription admin screens replace order statuses with subscription statuses so that
-	 * WooCommerce's order UI (status select, list views, bulk actions) works for subscriptions.
-	 *
-	 * When viewing an individual subscription, only show statuses that the subscription can legally
-	 * transition to (matching WooCommerce Subscriptions). Ended subscriptions (cancelled, expired, switched)
-	 * cannot have their status changed to any other status.
+	 * Ensure both standard WooCommerce order statuses and subscription statuses are registered in wc_order_statuses
+	 * so WooCommerce CRUD (wc_create_order, set_status, HPOS) never throws WC_Data_Exception during renewals or updates.
 	 *
 	 * @param array $statuses Statuses.
 	 * @return array
 	 */
 	public static function maybe_filter_order_statuses( $statuses ) {
-		if ( did_action( 'current_screen' ) || isset( $_GET['page'] ) || isset( $_GET['post_type'] ) || isset( $_REQUEST['post'] ) || isset( $_REQUEST['post_ID'] ) ) { // phpcs:ignore
-			if ( self::is_subscription_admin_screen() ) {
-				$sub = self::get_current_subscription();
-				if ( $sub instanceof ULX_Subscription ) {
-					$all_statuses     = ulx_get_subscription_statuses();
-					$current_status   = $sub->get_status();
-					$current_key      = 'wc-' . $current_status;
-					$allowed_statuses = array();
-
-					// If the subscription is in an ended status (cancelled, expired, switched), it cannot transition to any other status.
-					if ( $sub->has_status( ULX_Subscription::get_ended_statuses() ) ) {
-						if ( isset( $all_statuses[ $current_key ] ) ) {
-							$allowed_statuses[ $current_key ] = $all_statuses[ $current_key ];
-						} else {
-							$allowed_statuses[ $current_key ] = ulx_get_subscription_status_name( $current_status );
-						}
-						return $allowed_statuses;
-					}
-
-					// Otherwise, only include valid transition targets plus current status.
-					foreach ( $all_statuses as $status_key => $status_label ) {
-						$clean_status = 'wc-' === substr( $status_key, 0, 3 ) ? substr( $status_key, 3 ) : $status_key;
-						if ( $clean_status === $current_status || $sub->can_be_updated_to( $clean_status ) ) {
-							$allowed_statuses[ $status_key ] = $status_label;
-						}
-					}
-					return $allowed_statuses;
-				}
-				return ulx_get_subscription_statuses();
-			}
-		}
-		return $statuses;
+		return array_merge( (array) $statuses, ulx_get_subscription_statuses() );
 	}
 
 	/**

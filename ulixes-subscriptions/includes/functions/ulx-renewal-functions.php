@@ -45,32 +45,37 @@ function ulx_create_order_from_subscription( $subscription, $type = 'renewal_ord
 		return new WP_Error( 'ulx_invalid_subscription', __( 'Invalid subscription.', 'ulixes-subscriptions' ) );
 	}
 
-	$new_order = wc_create_order(
-		array(
-			'customer_id'   => $subscription->get_user_id(),
-			'customer_note' => $subscription->get_customer_note(),
-			'created_via'   => 'subscription',
-		)
-	);
-	if ( is_wp_error( $new_order ) ) {
+	try {
+		$new_order = wc_create_order(
+			array(
+				'customer_id'   => $subscription->get_user_id(),
+				'customer_note' => $subscription->get_customer_note(),
+				'created_via'   => 'subscription',
+			)
+		);
+		if ( is_wp_error( $new_order ) ) {
+			return $new_order;
+		}
+
+		ulx_copy_order_address( $subscription, $new_order );
+		ulx_copy_order_meta( $subscription, $new_order, $type );
+		ulx_copy_order_items( $subscription, $new_order );
+
+		$new_order->set_total( $subscription->get_total() );
+		$new_order->set_shipping_total( $subscription->get_shipping_total() );
+		$new_order->set_shipping_tax( $subscription->get_shipping_tax() );
+		$new_order->set_discount_total( $subscription->get_discount_total() );
+		$new_order->set_discount_tax( $subscription->get_discount_tax() );
+		$new_order->set_cart_tax( $subscription->get_cart_tax() );
+		$new_order->save();
+		$new_order->calculate_totals( false );
+		$new_order->save();
+
 		return $new_order;
+	} catch ( Throwable $e ) {
+		ulx_log( 'Error creating order from subscription #' . $subscription->get_id() . ': ' . $e->getMessage(), 'error' );
+		return new WP_Error( 'ulx_order_creation_error', $e->getMessage() );
 	}
-
-	ulx_copy_order_address( $subscription, $new_order );
-	ulx_copy_order_meta( $subscription, $new_order, $type );
-	ulx_copy_order_items( $subscription, $new_order );
-
-	$new_order->set_Total( $subscription->get_total() );
-	$new_order->set_shipping_total( $subscription->get_shipping_total() );
-	$new_order->set_shipping_tax( $subscription->get_shipping_tax() );
-	$new_order->set_discount_total( $subscription->get_discount_total() );
-	$new_order->set_discount_tax( $subscription->get_discount_tax() );
-	$new_order->set_cart_tax( $subscription->get_cart_tax() );
-	$new_order->save();
-	$new_order->calculate_totals( false );
-	$new_order->save();
-
-	return $new_order;
 }
 
 /**

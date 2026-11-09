@@ -30,64 +30,11 @@ class ULX_Admin_Meta_Boxes {
 		add_action( 'woocommerce_process_shop_order_meta', array( __CLASS__, 'save_subscription_schedule_meta' ), 55, 2 );
 		add_action( 'woocommerce_process_shop_order_meta', array( __CLASS__, 'lock_ended_subscription_status' ), 1, 2 );
 		add_filter( 'woocommerce_order_actions', array( __CLASS__, 'add_subscription_actions' ), 10, 2 );
-		add_filter( 'wc_order_statuses', array( __CLASS__, 'filter_subscription_order_statuses' ), 20 );
 		add_action( 'admin_footer', array( __CLASS__, 'render_status_lock_script' ) );
 
 		add_action( 'woocommerce_order_action_ulx_process_renewal', array( __CLASS__, 'action_process_renewal' ) );
 		add_action( 'woocommerce_order_action_ulx_create_pending_renewal', array( __CLASS__, 'action_create_pending_renewal' ) );
 		add_action( 'woocommerce_order_action_ulx_retry_renewal_payment', array( __CLASS__, 'action_retry_renewal_payment' ) );
-	}
-
-	/**
-	 * Restrict the Status dropdown on the Subscription edit screen according to valid transition states.
-	 * If the subscription is in a terminal/ended status (Cancelled, Switched, Expired), the dropdown
-	 * cannot be changed back to Active, Pending, or On-hold (WooCommerce Subscriptions parity).
-	 *
-	 * @param array $statuses Order statuses.
-	 * @return array
-	 */
-	public static function filter_subscription_order_statuses( $statuses ) {
-		if ( ! is_admin() ) {
-			return $statuses;
-		}
-
-		$sub_id = 0;
-		if ( isset( $_GET['post'] ) ) { // phpcs:ignore WordPress.Security.NonceVerification
-			$sub_id = absint( $_GET['post'] );
-		} elseif ( isset( $_GET['id'] ) ) { // phpcs:ignore WordPress.Security.NonceVerification
-			$sub_id = absint( $_GET['id'] );
-		}
-
-		if ( ! $sub_id || ! ulx_is_subscription( $sub_id ) ) {
-			return $statuses;
-		}
-
-		$subscription = ulx_get_subscription( $sub_id );
-		if ( ! $subscription ) {
-			return $statuses;
-		}
-
-		$current_status = $subscription->get_status();
-		$ended_statuses = ULX_Subscription::get_ended_statuses();
-
-		// If subscription has ended (Cancelled, Switched, Expired), lock to current status only.
-		if ( in_array( $current_status, $ended_statuses, true ) ) {
-			return array(
-				'wc-' . $current_status => ulx_get_subscription_status_name( $current_status ),
-			);
-		}
-
-		// Otherwise, only permit statuses that can_be_updated_to returns true for, plus current status.
-		$filtered     = array();
-		$sub_statuses = ulx_get_subscription_statuses();
-		foreach ( $sub_statuses as $st_key => $st_name ) {
-			$raw_st = 'wc-' === substr( $st_key, 0, 3 ) ? substr( $st_key, 3 ) : $st_key;
-			if ( $raw_st === $current_status || $subscription->can_be_updated_to( $raw_st ) ) {
-				$filtered[ $st_key ] = $st_name;
-			}
-		}
-
-		return ! empty( $filtered ) ? $filtered : $statuses;
 	}
 
 	/**
@@ -111,7 +58,8 @@ class ULX_Admin_Meta_Boxes {
 	}
 
 	/**
-	 * Output inline JavaScript on the edit subscription page to visually lock the status dropdown when ended.
+	 * Output inline JavaScript on the edit subscription page to visually lock the status dropdown when ended
+	 * and strip non-subscription order statuses (Processing, Completed, Refunded) from the select element.
 	 */
 	public static function render_status_lock_script() {
 		$screen = function_exists( 'get_current_screen' ) ? get_current_screen() : null;
@@ -136,24 +84,39 @@ class ULX_Admin_Meta_Boxes {
 		}
 
 		$sub = ulx_get_subscription( $sub_id );
-		if ( ! $sub || ! $sub->has_status( ULX_Subscription::get_ended_statuses() ) ) {
+		if ( ! $sub ) {
 			return;
 		}
+
+		$is_ended = $sub->has_status( ULX_Subscription::get_ended_statuses() );
 		?>
 		<script type="text/javascript">
 		jQuery( function( $ ) {
 			var $status = $( '#order_status' );
-			if ( $status.length ) {
-				$status.prop( 'disabled', true );
-				if ( ! $( '#ulx-status-locked-notice' ).length ) {
-					$status.closest( '.form-field' ).append(
-						'<p id="ulx-status-locked-notice" style="margin-top:6px; font-size:12px; color:#c92a2a; font-weight:600;">' +
-						'<span class="dashicons dashicons-lock" style="font-size:14px; vertical-align:middle; line-height:1; margin-right:4px;"></span>' +
-						'<?php echo esc_js( __( 'This subscription has ended and cannot be reactivated or changed.', 'ulixes-subscriptions' ) ); ?>' +
-						'</p>'
-					);
-				}
+			if ( ! $status.length ) {
+				return;
 			}
+			// Remove non-subscription statuses (e.g. Processing, Completed, Refunded) from the subscription status select.
+			var allowedSubStatuses = ['wc-active', 'wc-on-hold', 'wc-pending', 'wc-cancelled', 'wc-switched', 'wc-expired', 'wc-pending-cancel'];
+			$status.find( 'option' ).each( function() {
+				if ( $.inArray( $( this ).val(), allowedSubStatuses ) === -1 ) {
+					$( this ).remove();
+				}
+			} );
+
+			<?php if ( $is_ended ) : ?>
+			// For ended subscriptions (Cancelled, Switched, Expired), lock to current status and disable.
+			$status.find( 'option' ).not( ':selected' ).remove();
+			$status.prop( 'disabled', true );
+			if ( ! $( '#ulx-status-locked-notice' ).length ) {
+				$status.closest( '.form-field' ).append(
+					'<p id="ulx-status-locked-notice" style="margin-top:6px; font-size:12px; color:#c92a2a; font-weight:600;">' +
+					'<span class="dashicons dashicons-lock" style="font-size:14px; vertical-align:middle; line-height:1; margin-right:4px;"></span>' +
+					'<?php echo esc_js( __( 'This subscription has ended and cannot be reactivated or changed.', 'ulixes-subscriptions' ) ); ?>' +
+					'</p>'
+				);
+			}
+			<?php endif; ?>
 		} );
 		</script>
 		<?php
@@ -536,9 +499,14 @@ class ULX_Admin_Meta_Boxes {
 		if ( ! $sub ) {
 			return;
 		}
-		$sub->add_order_note( __( 'Process renewal action requested by admin.', 'ulixes-subscriptions' ), 0, true );
-		ULX_Manager::prepare_renewal( $sub->get_id() );
-		ULX_Manager::maybe_process_gateway_renewal( $sub->get_id() );
+		try {
+			$sub->add_order_note( __( 'Process renewal action requested by admin.', 'ulixes-subscriptions' ), 0, true );
+			ULX_Manager::prepare_renewal( $sub->get_id() );
+			ULX_Manager::maybe_process_gateway_renewal( $sub->get_id() );
+		} catch ( Throwable $e ) {
+			ulx_log( 'action_process_renewal error on subscription #' . $sub->get_id() . ': ' . $e->getMessage(), 'error' );
+			$sub->add_order_note( sprintf( /* translators: %s: error message */ __( 'Error processing renewal: %s', 'ulixes-subscriptions' ), $e->getMessage() ), 0, true );
+		}
 	}
 
 	/**
@@ -551,9 +519,25 @@ class ULX_Admin_Meta_Boxes {
 		if ( ! $sub ) {
 			return;
 		}
-		$renewal = ulx_create_renewal_order( $sub );
-		if ( ! is_wp_error( $renewal ) ) {
-			$sub->update_status( 'on-hold', sprintf( /* translators: %s: order number */ __( 'Pending renewal order #%s created by admin.', 'ulixes-subscriptions' ), $renewal->get_order_number() ), true );
+		try {
+			$renewal = ulx_create_renewal_order( $sub );
+			if ( is_wp_error( $renewal ) ) {
+				$sub->add_order_note( sprintf( /* translators: %s: error message */ __( 'Failed to create pending renewal order: %s', 'ulixes-subscriptions' ), $renewal->get_error_message() ), 0, true );
+				return;
+			}
+			$note = sprintf(
+				/* translators: %s: order number */
+				__( 'Pending renewal order #%s created by admin.', 'ulixes-subscriptions' ),
+				$renewal->get_order_number()
+			);
+			if ( $sub->can_be_updated_to( 'on-hold' ) ) {
+				$sub->update_status( 'on-hold', $note, true );
+			} else {
+				$sub->add_order_note( $note, 0, true );
+			}
+		} catch ( Throwable $e ) {
+			ulx_log( 'action_create_pending_renewal error on subscription #' . $sub->get_id() . ': ' . $e->getMessage(), 'error' );
+			$sub->add_order_note( sprintf( /* translators: %s: error message */ __( 'Error creating pending renewal order: %s', 'ulixes-subscriptions' ), $e->getMessage() ), 0, true );
 		}
 	}
 
@@ -567,10 +551,15 @@ class ULX_Admin_Meta_Boxes {
 		if ( ! $sub ) {
 			return;
 		}
-		$last_renewal = $sub->get_last_order( 'all', 'renewal' );
-		if ( $last_renewal ) {
-			$sub->add_order_note( __( 'Admin triggered manual retry of renewal payment.', 'ulixes-subscriptions' ), 0, true );
-			ULX_Payment_Gateways::trigger_gateway_renewal_payment_hook( $last_renewal );
+		try {
+			$last_renewal = $sub->get_last_order( 'all', 'renewal' );
+			if ( $last_renewal ) {
+				$sub->add_order_note( __( 'Admin triggered manual retry of renewal payment.', 'ulixes-subscriptions' ), 0, true );
+				ULX_Payment_Gateways::trigger_gateway_renewal_payment_hook( $last_renewal );
+			}
+		} catch ( Throwable $e ) {
+			ulx_log( 'action_retry_renewal_payment error on subscription #' . $sub->get_id() . ': ' . $e->getMessage(), 'error' );
+			$sub->add_order_note( sprintf( /* translators: %s: error message */ __( 'Error retrying renewal payment: %s', 'ulixes-subscriptions' ), $e->getMessage() ), 0, true );
 		}
 	}
 }

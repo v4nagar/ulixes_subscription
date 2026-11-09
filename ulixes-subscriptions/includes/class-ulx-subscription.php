@@ -725,7 +725,8 @@ class ULX_Subscription extends WC_Order {
 			);
 			$this->add_order_note( $message );
 			do_action( 'ulx_subscription_unable_to_update_status', $this, $new_status, $old_status );
-			throw new Exception( esc_html( $message ) );
+			ulx_log( $message, 'warning' );
+			return false;
 		}
 
 		try {
@@ -834,7 +835,7 @@ class ULX_Subscription extends WC_Order {
 			ulx_log( 'Subscription status update error: ' . $e->getMessage(), 'error' );
 			$this->add_order_note( sprintf( /* translators: %s: error */ __( 'Unable to change subscription status to "%s".', 'ulixes-subscriptions' ), $new_status ) . ' ' . $e->getMessage() );
 			do_action( 'ulx_subscription_unable_to_update_status', $this, $new_status, $old_status );
-			throw $e;
+			return false;
 		}
 
 		return true;
