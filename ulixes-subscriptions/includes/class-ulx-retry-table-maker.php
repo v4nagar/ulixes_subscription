@@ -140,12 +140,13 @@ class ULX_Retry_Table_Maker {
 	 */
 	public static function get_retries_for_order( $order_id ) {
 		global $wpdb;
-		$table_name = self::get_table_name();
-		// phpcs:ignore WordPress.DB.DirectDatabaseQuery
+		$table_name = esc_sql( self::get_table_name() );
+		// phpcs:disable WordPress.DB.DirectDatabaseQuery, WordPress.DB.PreparedSQL.InterpolatedNotPrepared, PluginCheck.Security.DirectDB.UnescapedDBParameter
 		return (array) $wpdb->get_results(
-			$wpdb->prepare( "SELECT * FROM {$table_name} WHERE order_id = %d ORDER BY retry_id ASC", (int) $order_id ),
+			$wpdb->prepare( "SELECT * FROM {$table_name} WHERE order_id = %d ORDER BY retry_id ASC", (int) $order_id ), // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared, PluginCheck.Security.DirectDB.UnescapedDBParameter
 			ARRAY_A
 		);
+		// phpcs:enable WordPress.DB.DirectDatabaseQuery, WordPress.DB.PreparedSQL.InterpolatedNotPrepared, PluginCheck.Security.DirectDB.UnescapedDBParameter
 	}
 
 	/**
@@ -156,12 +157,13 @@ class ULX_Retry_Table_Maker {
 	 */
 	public static function get_last_retry_for_order( $order_id ) {
 		global $wpdb;
-		$table_name = self::get_table_name();
-		// phpcs:ignore WordPress.DB.DirectDatabaseQuery
+		$table_name = esc_sql( self::get_table_name() );
+		// phpcs:disable WordPress.DB.DirectDatabaseQuery, WordPress.DB.PreparedSQL.InterpolatedNotPrepared, PluginCheck.Security.DirectDB.UnescapedDBParameter
 		return $wpdb->get_row(
-			$wpdb->prepare( "SELECT * FROM {$table_name} WHERE order_id = %d ORDER BY retry_id DESC LIMIT 1", (int) $order_id ),
+			$wpdb->prepare( "SELECT * FROM {$table_name} WHERE order_id = %d ORDER BY retry_id DESC LIMIT 1", (int) $order_id ), // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared, PluginCheck.Security.DirectDB.UnescapedDBParameter
 			ARRAY_A
 		);
+		// phpcs:enable WordPress.DB.DirectDatabaseQuery, WordPress.DB.PreparedSQL.InterpolatedNotPrepared, PluginCheck.Security.DirectDB.UnescapedDBParameter
 	}
 }
 

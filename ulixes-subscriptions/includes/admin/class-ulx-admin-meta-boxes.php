@@ -47,6 +47,7 @@ class ULX_Admin_Meta_Boxes {
 		if ( ! current_user_can( 'edit_shop_orders' ) && ! current_user_can( 'manage_woocommerce' ) ) {
 			return;
 		}
+		// phpcs:disable WordPress.Security.NonceVerification.Missing
 		if ( ! ulx_is_subscription( $post_id ) ) {
 			return;
 		}
@@ -58,6 +59,7 @@ class ULX_Admin_Meta_Boxes {
 		if ( isset( $_POST['order_status'] ) ) {
 			$_POST['order_status'] = 'wc-' . $sub->get_status();
 		}
+		// phpcs:enable WordPress.Security.NonceVerification.Missing
 	}
 
 	/**
@@ -88,12 +90,20 @@ class ULX_Admin_Meta_Boxes {
 		);
 
 		if ( $is_sub_screen ) {
+			global $theorder, $post;
 			$sub_id = 0;
-			if ( isset( $_GET['post'] ) ) { // phpcs:ignore WordPress.Security.NonceVerification
+			if ( $theorder instanceof WC_Order ) {
+				$sub_id = $theorder->get_id();
+			} elseif ( ! empty( $post->ID ) ) {
+				$sub_id = $post->ID;
+			}
+			// phpcs:disable WordPress.Security.NonceVerification.Recommended
+			if ( ! $sub_id && isset( $_GET['post'] ) ) {
 				$sub_id = absint( $_GET['post'] );
-			} elseif ( isset( $_GET['id'] ) ) { // phpcs:ignore WordPress.Security.NonceVerification
+			} elseif ( ! $sub_id && isset( $_GET['id'] ) ) {
 				$sub_id = absint( $_GET['id'] );
 			}
+			// phpcs:enable WordPress.Security.NonceVerification.Recommended
 
 			$sub      = $sub_id ? ulx_get_subscription( $sub_id ) : null;
 			$is_ended = ( $sub && $sub->has_status( ULX_Subscription::get_ended_statuses() ) );

@@ -180,18 +180,21 @@ class ULX_Post_Types {
 		if ( $theorder instanceof ULX_Subscription ) {
 			return $theorder;
 		}
-		$id = 0;
-		if ( isset( $_GET['id'] ) ) { // phpcs:ignore WordPress.Security.NonceVerification.Recommended
-			$id = absint( $_GET['id'] );
-		} elseif ( isset( $_GET['post'] ) ) { // phpcs:ignore WordPress.Security.NonceVerification.Recommended
-			$id = absint( $_GET['post'] );
-		} elseif ( isset( $_POST['post_ID'] ) ) { // phpcs:ignore WordPress.Security.NonceVerification.Missing
-			$id = absint( $_POST['post_ID'] );
-		} elseif ( isset( $_POST['order_id'] ) ) { // phpcs:ignore WordPress.Security.NonceVerification.Missing
-			$id = absint( $_POST['order_id'] );
-		} elseif ( ! empty( $post ) && 'shop_subscription' === $post->post_type ) {
-			$id = $post->ID;
+		if ( ! empty( $post ) && 'shop_subscription' === $post->post_type ) {
+			return ulx_get_subscription( $post->ID );
 		}
+		$id = 0;
+		// phpcs:disable WordPress.Security.NonceVerification
+		if ( isset( $_GET['id'] ) ) {
+			$id = absint( $_GET['id'] );
+		} elseif ( isset( $_GET['post'] ) ) {
+			$id = absint( $_GET['post'] );
+		} elseif ( isset( $_POST['post_ID'] ) ) {
+			$id = absint( $_POST['post_ID'] );
+		} elseif ( isset( $_POST['order_id'] ) ) {
+			$id = absint( $_POST['order_id'] );
+		}
+		// phpcs:enable WordPress.Security.NonceVerification
 		if ( $id > 0 ) {
 			return ulx_get_subscription( $id );
 		}
