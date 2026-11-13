@@ -164,8 +164,14 @@ class ULX_Coupons {
 	 * @param WC_Coupon $coupon    Coupon.
 	 */
 	public static function save_coupon_limit_payments_field( $coupon_id, $coupon ) {
-		if ( isset( $_POST['_ulx_number_payments'] ) ) { // phpcs:ignore WordPress.Security.NonceVerification
-			$val = sanitize_text_field( wp_unslash( $_POST['_ulx_number_payments'] ) ); // phpcs:ignore WordPress.Security.NonceVerification
+		if ( ! current_user_can( 'manage_woocommerce' ) ) {
+			return;
+		}
+		if ( ! empty( $_POST['woocommerce_meta_nonce'] ) && ! wp_verify_nonce( sanitize_text_field( wp_unslash( $_POST['woocommerce_meta_nonce'] ) ), 'woocommerce_save_data' ) ) {
+			return;
+		}
+		if ( isset( $_POST['_ulx_number_payments'] ) ) {
+			$val = sanitize_text_field( wp_unslash( $_POST['_ulx_number_payments'] ) );
 			$coupon->update_meta_data( '_ulx_number_payments', '' === $val ? '' : absint( $val ) );
 			$coupon->save_meta_data();
 		}

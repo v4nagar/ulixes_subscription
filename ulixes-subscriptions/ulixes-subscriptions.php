@@ -16,7 +16,7 @@
  * License URI:       https://www.gnu.org/licenses/gpl-3.0.html
  *
  * @package Ulixes_Subscriptions
- * @author  Vishnu Kumar Nagar <v4.nagar@gmail.com>
+ * @author  Vishnu Kumar Nagar <info@ulixes.in>
  */
 
 defined( 'ABSPATH' ) || exit;

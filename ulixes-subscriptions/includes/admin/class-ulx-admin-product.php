@@ -225,7 +225,12 @@ class ULX_Admin_Product {
 	 * @param int $post_id Product ID.
 	 */
 	public static function save_simple_subscription_meta( $post_id ) {
-		// phpcs:disable WordPress.Security.NonceVerification
+		if ( ! current_user_can( 'edit_product', $post_id ) ) {
+			return;
+		}
+		if ( ! empty( $_POST['woocommerce_meta_nonce'] ) && ! wp_verify_nonce( sanitize_text_field( wp_unslash( $_POST['woocommerce_meta_nonce'] ) ), 'woocommerce_save_data' ) ) {
+			return;
+		}
 		$price      = isset( $_POST['_subscription_price'] ) ? wc_format_decimal( sanitize_text_field( wp_unslash( $_POST['_subscription_price'] ) ) ) : '';
 		$sale_price = isset( $_POST['_sale_price'] ) ? wc_format_decimal( sanitize_text_field( wp_unslash( $_POST['_sale_price'] ) ) ) : get_post_meta( $post_id, '_sale_price', true );
 		update_post_meta( $post_id, '_regular_price', $price );
@@ -266,7 +271,12 @@ class ULX_Admin_Product {
 	 * @param int $post_id Product ID.
 	 */
 	public static function save_variable_subscription_meta( $post_id ) {
-		// phpcs:disable WordPress.Security.NonceVerification
+		if ( ! current_user_can( 'edit_product', $post_id ) ) {
+			return;
+		}
+		if ( ! empty( $_POST['woocommerce_meta_nonce'] ) && ! wp_verify_nonce( sanitize_text_field( wp_unslash( $_POST['woocommerce_meta_nonce'] ) ), 'woocommerce_save_data' ) ) {
+			return;
+		}
 		$limit    = isset( $_POST['_subscription_limit'] ) ? sanitize_text_field( wp_unslash( $_POST['_subscription_limit'] ) ) : 'active';
 		$one_time = isset( $_POST['_subscription_one_time_shipping'] ) ? 'yes' : 'no';
 		update_post_meta( $post_id, '_subscription_limit', $limit );
@@ -356,7 +366,12 @@ class ULX_Admin_Product {
 	 * @param int $i            Loop index.
 	 */
 	public static function save_variation_subscription_fields( $variation_id, $i ) {
-		// phpcs:disable WordPress.Security.NonceVerification
+		if ( ! current_user_can( 'edit_product', $variation_id ) ) {
+			return;
+		}
+		if ( ! empty( $_POST['security'] ) && ! wp_verify_nonce( sanitize_text_field( wp_unslash( $_POST['security'] ) ), 'save-variations' ) ) {
+			return;
+		}
 		$posted_reg  = isset( $_POST['variable_regular_price'][ $i ] ) ? wc_format_decimal( sanitize_text_field( wp_unslash( $_POST['variable_regular_price'][ $i ] ) ) ) : '';
 		$posted_sub  = isset( $_POST['variable_subscription_price'][ $i ] ) ? wc_format_decimal( sanitize_text_field( wp_unslash( $_POST['variable_subscription_price'][ $i ] ) ) ) : '';
 		$posted_sale = isset( $_POST['variable_sale_price'][ $i ] ) ? wc_format_decimal( sanitize_text_field( wp_unslash( $_POST['variable_sale_price'][ $i ] ) ) ) : get_post_meta( $variation_id, '_sale_price', true );

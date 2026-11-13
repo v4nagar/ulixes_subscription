@@ -30,7 +30,7 @@ class ULX_Admin_Meta_Boxes {
 		add_action( 'woocommerce_process_shop_order_meta', array( __CLASS__, 'save_subscription_schedule_meta' ), 55, 2 );
 		add_action( 'woocommerce_process_shop_order_meta', array( __CLASS__, 'lock_ended_subscription_status' ), 1, 2 );
 		add_filter( 'woocommerce_order_actions', array( __CLASS__, 'add_subscription_actions' ), 10, 2 );
-		add_action( 'admin_footer', array( __CLASS__, 'render_status_lock_script' ) );
+		add_action( 'admin_enqueue_scripts', array( __CLASS__, 'enqueue_admin_assets' ) );
 
 		add_action( 'woocommerce_order_action_ulx_process_renewal', array( __CLASS__, 'action_process_renewal' ) );
 		add_action( 'woocommerce_order_action_ulx_create_pending_renewal', array( __CLASS__, 'action_create_pending_renewal' ) );
@@ -44,6 +44,9 @@ class ULX_Admin_Meta_Boxes {
 	 * @param WP_Post|null $post    Post object.
 	 */
 	public static function lock_ended_subscription_status( $post_id, $post = null ) {
+		if ( ! current_user_can( 'edit_shop_orders' ) && ! current_user_can( 'manage_woocommerce' ) ) {
+			return;
+		}
 		if ( ! ulx_is_subscription( $post_id ) ) {
 			return;
 		}
@@ -58,68 +61,72 @@ class ULX_Admin_Meta_Boxes {
 	}
 
 	/**
-	 * Output inline JavaScript on the edit subscription page to visually lock the status dropdown when ended
+	 * Enqueue admin scripts and inline script on the edit subscription page to visually lock the status dropdown when ended
 	 * and strip non-subscription order statuses (Processing, Completed, Refunded) from the select element.
+	 *
+	 * @param string $hook Page hook.
 	 */
-	public static function render_status_lock_script() {
+	public static function enqueue_admin_assets( $hook = '' ) {
 		$screen = function_exists( 'get_current_screen' ) ? get_current_screen() : null;
 		if ( ! $screen ) {
 			return;
 		}
 
 		$is_sub_screen = ( 'shop_subscription' === $screen->id || 'woocommerce_page_wc-orders--shop_subscription' === $screen->id );
-		if ( ! $is_sub_screen ) {
+		$is_prod_screen = ( 'product' === $screen->id );
+
+		if ( ! $is_sub_screen && ! $is_prod_screen ) {
 			return;
 		}
 
-		$sub_id = 0;
-		if ( isset( $_GET['post'] ) ) { // phpcs:ignore WordPress.Security.NonceVerification
-			$sub_id = absint( $_GET['post'] );
-		} elseif ( isset( $_GET['id'] ) ) { // phpcs:ignore WordPress.Security.NonceVerification
-			$sub_id = absint( $_GET['id'] );
-		}
+		wp_register_script(
+			'ulx-admin',
+			ULX_PLUGIN_URL . 'assets/js/admin.js',
+			array( 'jquery' ),
+			ULX_VERSION,
+			true
+		);
 
-		if ( ! $sub_id || ! ulx_is_subscription( $sub_id ) ) {
-			return;
-		}
-
-		$sub = ulx_get_subscription( $sub_id );
-		if ( ! $sub ) {
-			return;
-		}
-
-		$is_ended = $sub->has_status( ULX_Subscription::get_ended_statuses() );
-		?>
-		<script type="text/javascript">
-		jQuery( function( $ ) {
-			var $status = $( '#order_status' );
-			if ( ! $status.length ) {
-				return;
+		if ( $is_sub_screen ) {
+			$sub_id = 0;
+			if ( isset( $_GET['post'] ) ) { // phpcs:ignore WordPress.Security.NonceVerification
+				$sub_id = absint( $_GET['post'] );
+			} elseif ( isset( $_GET['id'] ) ) { // phpcs:ignore WordPress.Security.NonceVerification
+				$sub_id = absint( $_GET['id'] );
 			}
-			// Remove non-subscription statuses (e.g. Processing, Completed, Refunded) from the subscription status select.
-			var allowedSubStatuses = ['wc-active', 'wc-on-hold', 'wc-pending', 'wc-cancelled', 'wc-switched', 'wc-expired', 'wc-pending-cancel'];
-			$status.find( 'option' ).each( function() {
-				if ( $.inArray( $( this ).val(), allowedSubStatuses ) === -1 ) {
-					$( this ).remove();
-				}
-			} );
 
-			<?php if ( $is_ended ) : ?>
-			// For ended subscriptions (Cancelled, Switched, Expired), lock to current status and disable.
-			$status.find( 'option' ).not( ':selected' ).remove();
-			$status.prop( 'disabled', true );
-			if ( ! $( '#ulx-status-locked-notice' ).length ) {
-				$status.closest( '.form-field' ).append(
-					'<p id="ulx-status-locked-notice" style="margin-top:6px; font-size:12px; color:#c92a2a; font-weight:600;">' +
-					'<span class="dashicons dashicons-lock" style="font-size:14px; vertical-align:middle; line-height:1; margin-right:4px;"></span>' +
-					'<?php echo esc_js( __( 'This subscription has ended and cannot be reactivated or changed.', 'ulixes-subscriptions' ) ); ?>' +
-					'</p>'
-				);
+			$sub      = $sub_id ? ulx_get_subscription( $sub_id ) : null;
+			$is_ended = ( $sub && $sub->has_status( ULX_Subscription::get_ended_statuses() ) );
+
+			$locked_notice_text = esc_js( __( 'This subscription has ended and cannot be reactivated or changed.', 'ulixes-subscriptions' ) );
+			$inline_js = "jQuery(function($){
+				var \$status = $('#order_status');
+				if (!\$status.length) return;
+				var allowedSubStatuses = ['wc-active', 'wc-on-hold', 'wc-pending', 'wc-cancelled', 'wc-switched', 'wc-expired', 'wc-pending-cancel'];
+				\$status.find('option').each(function(){
+					if ($.inArray($(this).val(), allowedSubStatuses) === -1) { $(this).remove(); }
+				});";
+
+			if ( $is_ended ) {
+				$inline_js .= "
+				\$status.find('option').not(':selected').remove();
+				\$status.prop('disabled', true);
+				if (!$('#ulx-status-locked-notice').length) {
+					\$status.closest('.form-field').append(
+						'<p id=\"ulx-status-locked-notice\" style=\"margin-top:6px; font-size:12px; color:#c92a2a; font-weight:600;\">' +
+						'<span class=\"dashicons dashicons-lock\" style=\"font-size:14px; vertical-align:middle; line-height:1; margin-right:4px;\"></span>' +
+						'" . $locked_notice_text . "' +
+						'</p>'
+					);
+				}";
 			}
-			<?php endif; ?>
-		} );
-		</script>
-		<?php
+
+			$inline_js .= "});";
+
+			wp_add_inline_script( 'ulx-admin', $inline_js );
+		}
+
+		wp_enqueue_script( 'ulx-admin' );
 	}
 
 	/**
@@ -291,6 +298,9 @@ class ULX_Admin_Meta_Boxes {
 	 * @param WP_Post|null $post    Post or Order.
 	 */
 	public static function save_subscription_schedule_meta( $post_id, $post = null ) {
+		if ( ! current_user_can( 'edit_shop_orders' ) && ! current_user_can( 'manage_woocommerce' ) ) {
+			return;
+		}
 		if ( empty( $_POST['_ulx_schedule_nonce'] ) || ! wp_verify_nonce( sanitize_text_field( wp_unslash( $_POST['_ulx_schedule_nonce'] ) ), 'ulx_save_schedule_meta' ) ) {
 			return;
 		}
@@ -495,6 +505,9 @@ class ULX_Admin_Meta_Boxes {
 	 * @param WC_Order $order Subscription.
 	 */
 	public static function action_process_renewal( $order ) {
+		if ( ! current_user_can( 'edit_shop_orders' ) ) {
+			return;
+		}
 		$sub = ulx_get_subscription( $order );
 		if ( ! $sub ) {
 			return;
@@ -515,6 +528,9 @@ class ULX_Admin_Meta_Boxes {
 	 * @param WC_Order $order Subscription.
 	 */
 	public static function action_create_pending_renewal( $order ) {
+		if ( ! current_user_can( 'edit_shop_orders' ) ) {
+			return;
+		}
 		$sub = ulx_get_subscription( $order );
 		if ( ! $sub ) {
 			return;
@@ -547,6 +563,9 @@ class ULX_Admin_Meta_Boxes {
 	 * @param WC_Order $order Subscription.
 	 */
 	public static function action_retry_renewal_payment( $order ) {
+		if ( ! current_user_can( 'edit_shop_orders' ) ) {
+			return;
+		}
 		$sub = ulx_get_subscription( $order );
 		if ( ! $sub ) {
 			return;

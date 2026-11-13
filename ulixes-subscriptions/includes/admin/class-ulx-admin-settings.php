@@ -53,6 +53,10 @@ class ULX_Admin_Settings {
 	 * Save settings fields.
 	 */
 	public static function save_settings() {
+		if ( ! current_user_can( 'manage_woocommerce' ) ) {
+			return;
+		}
+		check_admin_referer( 'woocommerce-settings' );
 		woocommerce_update_options( self::get_settings() );
 	}
 

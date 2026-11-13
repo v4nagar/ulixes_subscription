@@ -92,14 +92,14 @@ class ULX_My_Account {
 			if ( isset( $wp_query->query_vars['view-subscription'] ) ) {
 				$sub = ulx_get_subscription( absint( $wp_query->query_vars['view-subscription'] ) );
 				/* translators: %s: subscription number */
-				$title = $sub ? sprintf( __( 'Subscription #%s', 'ulixes-subscriptions' ), $sub->get_order_number() ) : __( 'View Subscription', 'ulixes-subscriptions' );
+				$title = $sub ? sprintf( esc_html__( 'Subscription #%s', 'ulixes-subscriptions' ), esc_html( $sub->get_order_number() ) ) : esc_html__( 'View Subscription', 'ulixes-subscriptions' );
 				remove_filter( 'the_title', array( __CLASS__, 'endpoint_title' ), 10 );
 			} elseif ( isset( $wp_query->query_vars['subscriptions'] ) ) {
-				$title = __( 'Subscriptions', 'ulixes-subscriptions' );
+				$title = esc_html__( 'Subscriptions', 'ulixes-subscriptions' );
 				remove_filter( 'the_title', array( __CLASS__, 'endpoint_title' ), 10 );
 			}
 		}
-		return $title;
+		return esc_html( $title );
 	}
 
 	/**
@@ -193,7 +193,13 @@ class ULX_My_Account {
 	 * @param string $load_address 'billing' or 'shipping'.
 	 */
 	public static function maybe_save_subscription_address( $user_id, $load_address ) {
-		// phpcs:disable WordPress.Security.NonceVerification
+		if ( ! empty( $_POST['woocommerce-edit-address-nonce'] ) && ! wp_verify_nonce( sanitize_text_field( wp_unslash( $_POST['woocommerce-edit-address-nonce'] ) ), 'woocommerce-edit_address' ) ) {
+			return;
+		}
+		if ( ! current_user_can( 'edit_user', $user_id ) && get_current_user_id() !== (int) $user_id ) {
+			return;
+		}
+
 		$update_all = ! empty( $_POST['update_all_subscriptions_addresses'] );
 		$single_id  = ! empty( $_POST['ulx_update_subscription_address'] ) ? absint( $_POST['ulx_update_subscription_address'] ) : 0;
 		if ( ! $update_all && ! $single_id ) {

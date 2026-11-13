@@ -1,5 +1,5 @@
 === Ulixes Subscriptions ===
-Contributors: vishnukumarnagar, ulixes
+Contributors: v4nagar, Vishnu Kumar Nagar
 Tags: woocommerce, subscriptions, recurring payments, memberships, billing
 Requires at least: 6.0
 Tested up to: 7.1

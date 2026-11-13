@@ -50,7 +50,7 @@ class ULX_REST_Subscriptions_Controller {
 					array(
 						'methods'             => WP_REST_Server::CREATABLE,
 						'callback'            => array( __CLASS__, 'create_item' ),
-						'permission_callback' => array( __CLASS__, 'permissions_write' ),
+						'permission_callback' => array( __CLASS__, 'permissions_create' ),
 					),
 				)
 			);
@@ -79,12 +79,12 @@ class ULX_REST_Subscriptions_Controller {
 					array(
 						'methods'             => WP_REST_Server::EDITABLE,
 						'callback'            => array( __CLASS__, 'update_item' ),
-						'permission_callback' => array( __CLASS__, 'permissions_write' ),
+						'permission_callback' => array( __CLASS__, 'permissions_edit' ),
 					),
 					array(
 						'methods'             => WP_REST_Server::DELETABLE,
 						'callback'            => array( __CLASS__, 'delete_item' ),
-						'permission_callback' => array( __CLASS__, 'permissions_write' ),
+						'permission_callback' => array( __CLASS__, 'permissions_delete' ),
 					),
 				)
 			);
@@ -106,19 +106,54 @@ class ULX_REST_Subscriptions_Controller {
 	/**
 	 * Read permission check.
 	 *
+	 * @param WP_REST_Request|null $request Request object.
 	 * @return bool
 	 */
-	public static function permissions_read() {
-		return wc_rest_check_post_permissions( 'shop_order', 'read' );
+	public static function permissions_read( $request = null ) {
+		$id = ( $request && isset( $request['id'] ) ) ? absint( $request['id'] ) : 0;
+		return wc_rest_check_post_permissions( 'shop_order', 'read', $id );
 	}
 
 	/**
-	 * Write permission check.
+	 * Create permission check.
 	 *
+	 * @param WP_REST_Request|null $request Request object.
 	 * @return bool
 	 */
-	public static function permissions_write() {
+	public static function permissions_create( $request = null ) {
 		return wc_rest_check_post_permissions( 'shop_order', 'create' );
+	}
+
+	/**
+	 * Edit permission check.
+	 *
+	 * @param WP_REST_Request|null $request Request object.
+	 * @return bool
+	 */
+	public static function permissions_edit( $request = null ) {
+		$id = ( $request && isset( $request['id'] ) ) ? absint( $request['id'] ) : 0;
+		return wc_rest_check_post_permissions( 'shop_order', 'edit', $id );
+	}
+
+	/**
+	 * Delete permission check.
+	 *
+	 * @param WP_REST_Request|null $request Request object.
+	 * @return bool
+	 */
+	public static function permissions_delete( $request = null ) {
+		$id = ( $request && isset( $request['id'] ) ) ? absint( $request['id'] ) : 0;
+		return wc_rest_check_post_permissions( 'shop_order', 'delete', $id );
+	}
+
+	/**
+	 * Write permission check (fallback/backwards-compat).
+	 *
+	 * @param WP_REST_Request|null $request Request object.
+	 * @return bool
+	 */
+	public static function permissions_write( $request = null ) {
+		return self::permissions_create( $request );
 	}
 
 	/**
