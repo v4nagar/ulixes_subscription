@@ -3,7 +3,7 @@
  * Subscription info table appended to WooCommerce order emails.
  *
  * @package Ulixes_Subscriptions
- * @var ULX_Subscription[] $subscriptions
+ * @var ULIXSU_Subscription[] $subscriptions
  * @var bool               $is_admin_email
  */
 

@@ -1,0 +1,538 @@
+<?php
+/**
+ * Checkout handler: creates subscriptions from `WC()->cart->recurring_carts` when a customer checks out.
+ *
+ * @package Ulixes_Subscriptions
+ */
+
+defined( 'ABSPATH' ) || exit;
+
+// phpcs:disable WordPress.NamingConventions.PrefixAllGlobals
+
+/**
+ * ULIXSU_Checkout
+ */
+class ULIXSU_Checkout {
+
+	/**
+	 * Init hooks.
+	 */
+	public static function init() {
+		add_action( 'woocommerce_checkout_order_processed', array( __CLASS__, 'process_checkout' ), 100, 3 );
+		add_action( 'woocommerce_store_api_checkout_order_processed', array( __CLASS__, 'process_blocks_checkout' ), 100, 1 );
+		add_action( 'woocommerce_checkout_order_processed', array( __CLASS__, 'ensure_subscriptions_for_order' ), 105, 1 );
+		add_action( 'woocommerce_store_api_checkout_order_processed', array( __CLASS__, 'ensure_subscriptions_for_order' ), 105, 1 );
+		add_action( 'woocommerce_order_status_processing', array( __CLASS__, 'ensure_subscriptions_for_order' ), 5, 1 );
+		add_action( 'woocommerce_order_status_completed', array( __CLASS__, 'ensure_subscriptions_for_order' ), 5, 1 );
+		add_action( 'woocommerce_order_status_on-hold', array( __CLASS__, 'ensure_subscriptions_for_order' ), 5, 1 );
+		add_filter( 'woocommerce_checkout_registration_required', array( __CLASS__, 'require_registration_for_subscriptions' ) );
+		add_action( 'woocommerce_checkout_create_order_line_item', array( __CLASS__, 'add_line_item_meta' ), 10, 4 );
+	}
+
+	/**
+	 * Force account creation during subscription checkout.
+	 *
+	 * @param bool $required Registration required.
+	 * @return bool
+	 */
+	public static function require_registration_for_subscriptions( $required ) {
+		if ( ulixsu_cart_contains_subscription() && ! is_user_logged_in() && 'yes' === get_option( 'woocommerce_enable_signup_and_login_from_checkout' ) ) {
+			$required = true;
+		}
+		return $required;
+	}
+
+	/**
+	 * Ensure the parent order has a valid WordPress customer ID (links existing user by billing email or creates one).
+	 *
+	 * @param WC_Order $order Order.
+	 * @return int Customer ID.
+	 */
+	public static function resolve_customer_for_order( $order ) {
+		$customer_id = (int) $order->get_customer_id();
+		if ( $customer_id > 0 ) {
+			return $customer_id;
+		}
+		$email = sanitize_email( $order->get_billing_email() );
+		if ( ! $email ) {
+			return 0;
+		}
+		$existing_user = get_user_by( 'email', $email );
+		if ( $existing_user ) {
+			$customer_id = (int) $existing_user->ID;
+		} elseif ( function_exists( 'wc_create_new_customer' ) ) {
+			$new_id = wc_create_new_customer(
+				$email,
+				'',
+				wp_generate_password(),
+				array(
+					'first_name' => $order->get_billing_first_name(),
+					'last_name'  => $order->get_billing_last_name(),
+				)
+			);
+			if ( ! is_wp_error( $new_id ) ) {
+				$customer_id = (int) $new_id;
+			}
+		}
+		if ( $customer_id > 0 ) {
+			$order->set_customer_id( $customer_id );
+			$order->save();
+		}
+		return $customer_id;
+	}
+
+	/**
+	 * Persist sign-up fee and switch/resubscribe metadata onto parent order line items.
+	 *
+	 * @param WC_Order_Item_Product $item          Order item.
+	 * @param string                $cart_item_key Cart item key.
+	 * @param array                 $values        Cart item values.
+	 * @param WC_Order              $order         Order.
+	 */
+	public static function add_line_item_meta( $item, $cart_item_key, $values, $order ) {
+		if ( ! empty( $values['data'] ) && ulixsu_is_subscription_product( $values['data'] ) ) {
+			$fee = ulixsu_get_product_sign_up_fee( $values['data'] );
+			if ( $fee > 0 ) {
+				$item->add_meta_data( '_ulixsu_sign_up_fee', $fee, true );
+			}
+		}
+		if ( ! empty( $values['subscription_switch'] ) ) {
+			$item->add_meta_data( '_subscription_switch_data', $values['subscription_switch'], true );
+		}
+		if ( ! empty( $values['subscription_resubscribe'] ) ) {
+			$item->add_meta_data( '_subscription_resubscribe', $values['subscription_resubscribe'], true );
+		}
+		if ( ! empty( $values['subscription_renewal'] ) ) {
+			$item->add_meta_data( '_subscription_renewal', $values['subscription_renewal'], true );
+		}
+	}
+
+	/**
+	 * Blocks Checkout hook.
+	 *
+	 * @param WC_Order $order Order.
+	 */
+	public static function process_blocks_checkout( $order ) {
+		self::process_checkout( $order->get_id(), array(), $order );
+	}
+
+	/**
+	 * Create `ULIXSU_Subscription` records for each recurring cart on checkout.
+	 *
+	 * @param int      $order_id    Order ID.
+	 * @param array    $posted_data Posted data.
+	 * @param WC_Order $order       Order object.
+	 * @throws Exception On creation error.
+	 */
+	public static function process_checkout( $order_id, $posted_data = array(), $order = null ) {
+		if ( empty( WC()->cart ) || ! ulixsu_cart_contains_subscription() ) {
+			return;
+		}
+		if ( ulixsu_cart_contains_renewal() || ulixsu_cart_contains_switches() ) {
+			return;
+		}
+
+		$order = $order ? $order : wc_get_order( $order_id );
+		if ( ! $order ) {
+			return;
+		}
+
+		$existing = ulixsu_get_subscriptions_for_order( $order->get_id(), array( 'order_type' => 'any' ) );
+		if ( ! empty( $existing ) ) {
+			return;
+		}
+
+		if ( empty( WC()->cart->recurring_carts ) ) {
+			ULIXSU_Cart::calculate_subscription_totals( WC()->cart );
+		}
+
+		foreach ( (array) WC()->cart->recurring_carts as $recurring_cart_key => $recurring_cart ) {
+			$subscription = self::create_subscription( $order, $recurring_cart, $posted_data );
+			if ( is_wp_error( $subscription ) ) {
+				throw new Exception( esc_html( $subscription->get_error_message() ) );
+			}
+		}
+
+		do_action( 'ulixsu_checkout_subscription_created_for_order', $order, $posted_data );
+	}
+
+	/**
+	 * Create a single subscription from a recurring cart and parent order.
+	 *
+	 * @param WC_Order $order          Parent order.
+	 * @param WC_Cart  $recurring_cart Recurring cart.
+	 * @param array    $posted_data    Posted data.
+	 * @return ULIXSU_Subscription|WP_Error
+	 */
+	public static function create_subscription( $order, $recurring_cart, $posted_data = array() ) {
+		$customer_id = self::resolve_customer_for_order( $order );
+		if ( $customer_id > 0 ) {
+			foreach ( $recurring_cart->get_cart() as $cart_item ) {
+				if ( ! empty( $cart_item['subscription_resubscribe'] ) ) {
+					continue;
+				}
+				$prod = isset( $cart_item['data'] ) ? $cart_item['data'] : false;
+				if ( $prod && 'no' !== ulixsu_get_product_limit( $prod ) ) {
+					$parent_pid   = $prod->get_parent_id() ? $prod->get_parent_id() : $prod->get_id();
+					$existing_sub = ulixsu_get_user_subscription_for_product( $customer_id, $parent_pid, array( 'active', 'on-hold' ) );
+					if ( $existing_sub ) {
+						return self::handle_existing_subscription_order( $order, $existing_sub, $prod );
+					}
+				}
+			}
+		}
+
+		$start_date   = ulixsu_getattr_or_prop( $recurring_cart, 'start_date', current_time( 'mysql', true ) );
+		$subscription = ulixsu_create_subscription(
+			array(
+				'status'             => 'pending',
+				'order_id'           => $order->get_id(),
+				'customer_id'        => $customer_id,
+				'customer_note'      => $order->get_customer_note(),
+				'billing_period'     => ulixsu_getattr_or_prop( $recurring_cart, 'subscription_period', 'month' ),
+				'billing_interval'   => ulixsu_getattr_or_prop( $recurring_cart, 'subscription_period_interval', 1 ),
+				'start_date'         => $start_date,
+				'created_via'        => 'checkout',
+				'currency'           => $order->get_currency(),
+				'prices_include_tax' => $order->get_prices_include_tax() ? 'yes' : 'no',
+			)
+		);
+
+		if ( is_wp_error( $subscription ) ) {
+			return $subscription;
+		}
+
+		ulixsu_copy_order_address( $order, $subscription );
+		$subscription->set_payment_method( $order->get_payment_method() );
+		$subscription->set_payment_method_title( $order->get_payment_method_title() );
+
+		$gateway = ulixsu_get_payment_gateway( $order->get_payment_method() );
+		$manual  = ! $gateway || ! $gateway->supports( 'subscriptions' ) || ulixsu_automatic_payments_disabled();
+		$subscription->set_requires_manual_renewal( $manual );
+
+		$trial_period = ulixsu_getattr_or_prop( $recurring_cart, 'trial_period', '' );
+		if ( $trial_period ) {
+			$subscription->set_trial_period( $trial_period );
+		}
+
+		$dates = array(
+			'trial_end'    => ulixsu_getattr_or_prop( $recurring_cart, 'trial_end_date', 0 ),
+			'next_payment' => ulixsu_getattr_or_prop( $recurring_cart, 'next_payment_date', 0 ),
+			'end'          => ulixsu_getattr_or_prop( $recurring_cart, 'end_date', 0 ),
+		);
+		$subscription->update_dates( $dates );
+
+		WC()->checkout()->create_order_line_items( $subscription, $recurring_cart );
+		WC()->checkout()->create_order_fee_lines( $subscription, $recurring_cart );
+		WC()->checkout()->create_order_shipping_lines( $subscription, WC()->session ? WC()->session->get( 'chosen_shipping_methods', array() ) : array(), $recurring_cart->get_shipping_packages() );
+		WC()->checkout()->create_order_tax_lines( $subscription, $recurring_cart );
+		WC()->checkout()->create_order_coupon_lines( $subscription, $recurring_cart );
+
+		$subscription->set_shipping_total( $recurring_cart->get_shipping_total() );
+		$subscription->set_discount_total( $recurring_cart->get_discount_total() );
+		$subscription->set_discount_tax( $recurring_cart->get_discount_tax() );
+		$subscription->set_cart_tax( $recurring_cart->get_cart_contents_tax() + $recurring_cart->get_fee_tax() );
+		$subscription->set_shipping_tax( $recurring_cart->get_shipping_tax() );
+		$subscription->set_total( $recurring_cart->get_total( 'edit' ) );
+
+		foreach ( $recurring_cart->get_cart() as $cart_item ) {
+			if ( ! empty( $cart_item['subscription_resubscribe']['subscription_id'] ) ) {
+				$old_sub_id = absint( $cart_item['subscription_resubscribe']['subscription_id'] );
+				ulixsu_add_order_subscription_relation( $order, $old_sub_id, 'resubscribe' );
+				$old_sub = ulixsu_get_subscription( $old_sub_id );
+				if ( $old_sub && $old_sub->has_status( 'pending-cancel' ) && $old_sub->can_be_updated_to( 'cancelled' ) ) {
+					$old_sub->update_status( 'cancelled', __( 'Customer resubscribed to a new subscription.', 'ulixes-subscriptions' ) );
+				}
+			}
+
+			if ( ! empty( $cart_item['subscription_switch']['subscription_id'] ) ) {
+				$old_sub_id = absint( $cart_item['subscription_switch']['subscription_id'] );
+				ulixsu_add_order_subscription_relation( $order, $old_sub_id, 'switch' );
+				$old_sub = ulixsu_get_subscription( $old_sub_id );
+				if ( $old_sub && ! $old_sub->has_status( ULIXSU_Subscription::get_ended_statuses() ) ) {
+					$old_sub->update_meta_data( '_ulixsu_switched_to_subscription_id', $subscription->get_id() );
+					$old_sub->save_meta_data();
+					$subscription->update_meta_data( '_ulixsu_switched_from_subscription_id', $old_sub_id );
+					if ( ( $order->is_paid() || $order->has_status( array( 'processing', 'completed' ) ) ) && $old_sub->can_be_updated_to( 'switched' ) ) {
+						$old_sub->update_status(
+							'switched',
+							sprintf(
+								/* translators: 1: new sub id, 2: order number */
+								__( 'Subscription switched to new subscription #%1$s via order #%2$s.', 'ulixes-subscriptions' ),
+								$subscription->get_order_number(),
+								$order->get_order_number()
+							)
+						);
+					}
+				}
+			}
+		}
+
+		if ( $customer_id > 0 && ! ulixsu_option_is_yes( 'multiple_purchase' ) ) {
+			$older_subs = ulixsu_get_users_subscriptions( $customer_id );
+			foreach ( $older_subs as $older_sub ) {
+				if ( (int) $older_sub->get_id() === (int) $subscription->get_id() ) {
+					continue;
+				}
+				if ( $older_sub->has_status( array( 'active', 'on-hold', 'pending' ) ) && ! $older_sub->has_status( ULIXSU_Subscription::get_ended_statuses() ) ) {
+					$older_sub->update_meta_data( '_ulixsu_switched_to_subscription_id', $subscription->get_id() );
+					$older_sub->save_meta_data();
+					$subscription->update_meta_data( '_ulixsu_switched_from_subscription_id', $older_sub->get_id() );
+					ulixsu_add_order_subscription_relation( $order, $older_sub->get_id(), 'switch' );
+					if ( ( $order->is_paid() || $order->has_status( array( 'processing', 'completed' ) ) ) && $older_sub->can_be_updated_to( 'switched' ) ) {
+						$older_sub->update_status(
+							'switched',
+							sprintf(
+								/* translators: 1: new sub id, 2: order number */
+								__( 'Subscription switched to new subscription #%1$s via order #%2$s.', 'ulixes-subscriptions' ),
+								$subscription->get_order_number(),
+								$order->get_order_number()
+							)
+						);
+					}
+				}
+			}
+		}
+
+		$subscription->save();
+
+		do_action( 'ulixsu_checkout_subscription_created', $subscription, $order, $recurring_cart );
+		return $subscription;
+	}
+
+	/**
+	 * Ensure subscriptions are created directly from order line items if `WC()->cart->recurring_carts`
+	 * was not available (e.g. Store API Checkout Blocks, REST API orders, or Admin orders).
+	 *
+	 * @param int|WC_Order $order_or_id Order or Order ID.
+	 */
+	public static function ensure_subscriptions_for_order( $order_or_id ) {
+		$order = $order_or_id instanceof WC_Order ? $order_or_id : wc_get_order( $order_or_id );
+		if ( ! $order || $order instanceof ULIXSU_Subscription ) {
+			return;
+		}
+		if ( ulixsu_order_contains_renewal( $order ) || ulixsu_order_contains_switch( $order ) || ulixsu_order_contains_resubscribe( $order ) ) {
+			return;
+		}
+
+		$existing = ulixsu_get_subscriptions_for_order( $order->get_id(), array( 'order_type' => 'parent' ) );
+		if ( ! empty( $existing ) ) {
+			return;
+		}
+
+		$groups = array();
+		foreach ( $order->get_items( 'line_item' ) as $item_id => $item ) {
+			if ( ! ( $item instanceof WC_Order_Item_Product ) ) {
+				continue;
+			}
+			$product = $item->get_product();
+			if ( ! $product || ! ulixsu_is_subscription_product( $product ) ) {
+				continue;
+			}
+			$period   = ulixsu_get_product_period( $product );
+			$interval = ulixsu_get_product_interval( $product );
+			$length   = ulixsu_get_product_length( $product );
+			$trial_l  = ulixsu_get_product_trial_length( $product );
+			$trial_p  = ulixsu_get_product_trial_period( $product );
+			$key      = implode( '_', array( $period, $interval, $length, $trial_l, $trial_p ) );
+			$groups[ $key ][] = array(
+				'item'    => $item,
+				'product' => $product,
+			);
+		}
+
+		if ( empty( $groups ) ) {
+			return;
+		}
+
+		$customer_id = self::resolve_customer_for_order( $order );
+		$start_date  = $order->get_date_created() ? gmdate( 'Y-m-d H:i:s', $order->get_date_created()->getTimestamp() ) : current_time( 'mysql', true );
+
+		foreach ( $groups as $group_items ) {
+			$first_product = $group_items[0]['product'];
+			if ( $customer_id > 0 && 'no' !== ulixsu_get_product_limit( $first_product ) ) {
+				$parent_pid   = $first_product->get_parent_id() ? $first_product->get_parent_id() : $first_product->get_id();
+				$existing_sub = ulixsu_get_user_subscription_for_product( $customer_id, $parent_pid, array( 'active', 'on-hold' ) );
+				if ( $existing_sub ) {
+					self::handle_existing_subscription_order( $order, $existing_sub, $first_product );
+					continue;
+				}
+			}
+			$period        = ulixsu_get_product_period( $first_product );
+			$interval      = ulixsu_get_product_interval( $first_product );
+
+			$subscription = ulixsu_create_subscription(
+				array(
+					'status'             => 'pending',
+					'order_id'           => $order->get_id(),
+					'customer_id'        => $customer_id,
+					'customer_note'      => $order->get_customer_note(),
+					'billing_period'     => $period,
+					'billing_interval'   => $interval,
+					'start_date'         => $start_date,
+					'created_via'        => $order->get_created_via() ?: 'checkout',
+					'currency'           => $order->get_currency(),
+					'prices_include_tax' => $order->get_prices_include_tax() ? 'yes' : 'no',
+				)
+			);
+
+			if ( is_wp_error( $subscription ) ) {
+				continue;
+			}
+
+			ulixsu_copy_order_address( $order, $subscription );
+			$subscription->set_payment_method( $order->get_payment_method() );
+			$subscription->set_payment_method_title( $order->get_payment_method_title() );
+
+			$gateway = ulixsu_get_payment_gateway( $order->get_payment_method() );
+			$manual  = ! $gateway || ! $gateway->supports( 'subscriptions' ) || ulixsu_automatic_payments_disabled();
+			$subscription->set_requires_manual_renewal( $manual );
+
+			$trial_length = ulixsu_get_product_trial_length( $first_product );
+			if ( $trial_length > 0 ) {
+				$subscription->set_trial_period( ulixsu_get_product_trial_period( $first_product ) );
+			}
+
+			$trial_end    = ulixsu_get_product_trial_expiration_date( $first_product, $start_date );
+			$next_payment = ulixsu_get_product_first_renewal_payment_date( $first_product, $start_date );
+			$end_date     = ulixsu_get_product_expiration_date( $first_product, $start_date );
+
+			if ( ! $next_payment && 0 === $trial_length ) {
+				$next_payment = ulixsu_date_to_mysql( ulixsu_add_time( $interval, $period, ulixsu_date_to_time( $start_date ) ) );
+			}
+
+			$subscription->update_dates(
+				array(
+					'trial_end'    => $trial_end,
+					'next_payment' => $next_payment,
+					'end'          => $end_date,
+				)
+			);
+
+			foreach ( $group_items as $entry ) {
+				$new_item = clone $entry['item'];
+				$new_item->set_id( 0 );
+				$new_item->set_order_id( $subscription->get_id() );
+				$subscription->add_item( $new_item );
+			}
+
+			$subscription->calculate_totals();
+			$subscription->save();
+
+			if ( $order->has_status( array( 'processing', 'completed' ) ) && $subscription->can_be_updated_to( 'active' ) ) {
+				$subscription->update_status( 'active', __( 'Subscription activated by parent order payment.', 'ulixes-subscriptions' ) );
+			} elseif ( $order->has_status( 'on-hold' ) && $subscription->can_be_updated_to( 'on-hold' ) ) {
+				$subscription->update_status( 'on-hold', __( 'Subscription placed on hold by parent order.', 'ulixes-subscriptions' ) );
+			}
+
+			if ( $customer_id > 0 && ! ulixsu_option_is_yes( 'multiple_purchase' ) && $subscription->has_status( 'active' ) ) {
+				self::reconcile_superseded_subscriptions_for_customer( $customer_id, $subscription, $order );
+			}
+		}
+	}
+
+	/**
+	 * Reconcile superseded subscriptions for a customer (WCS parity).
+	 * If a customer already has an active or on-hold subscription and gets a new active subscription,
+	 * the older subscription must transition to 'switched' and its renewal schedule must be cancelled.
+	 *
+	 * @param int              $customer_id Customer ID.
+	 * @param ULIXSU_Subscription $active_sub  Newest active subscription.
+	 * @param WC_Order|null    $order       Triggering order.
+	 */
+	public static function reconcile_superseded_subscriptions_for_customer( $customer_id, $active_sub, $order = null ) {
+		if ( ! $customer_id || ! ( $active_sub instanceof ULIXSU_Subscription ) || ulixsu_option_is_yes( 'multiple_purchase' ) ) {
+			return;
+		}
+
+		$user_subs = ulixsu_get_users_subscriptions( $customer_id );
+		foreach ( $user_subs as $other_sub ) {
+			if ( ! ( $other_sub instanceof ULIXSU_Subscription ) ) {
+				continue;
+			}
+			if ( (int) $other_sub->get_id() === (int) $active_sub->get_id() ) {
+				continue;
+			}
+			if ( $other_sub->has_status( array( 'active', 'on-hold', 'pending' ) ) && $other_sub->can_be_updated_to( 'switched' ) ) {
+				$other_sub->update_meta_data( '_ulixsu_switched_to_subscription_id', $active_sub->get_id() );
+				$other_sub->save_meta_data();
+				$active_sub->update_meta_data( '_ulixsu_switched_from_subscription_id', $other_sub->get_id() );
+				$active_sub->save_meta_data();
+
+				if ( $order ) {
+					ulixsu_add_order_subscription_relation( $order, $other_sub->get_id(), 'switch' );
+					$note = sprintf(
+						/* translators: 1: new subscription ID, 2: order number */
+						__( 'Subscription switched to new subscription #%1$s via order #%2$s.', 'ulixes-subscriptions' ),
+						$active_sub->get_order_number(),
+						$order->get_order_number()
+					);
+				} else {
+					$note = sprintf(
+						/* translators: %s: new subscription ID */
+						__( 'Subscription switched to new subscription #%s.', 'ulixes-subscriptions' ),
+						$active_sub->get_order_number()
+					);
+				}
+
+				try {
+					$other_sub->update_status( 'switched', $note );
+				} catch ( Exception $e ) {
+					ulixsu_log( 'Failed to transition superseded subscription #' . $other_sub->get_id() . ' to switched: ' . $e->getMessage(), 'error' );
+				}
+			}
+		}
+	}
+
+	/**
+	 * When an order is placed for a product where the customer already has an active subscription,
+	 * route it to either Switch (Upgrade/Downgrade) if the variation differs, or Early Renewal if the plan is identical.
+	 *
+	 * @param WC_Order         $order        Order.
+	 * @param ULIXSU_Subscription $existing_sub Existing subscription.
+	 * @param WC_Product       $product      Ordered product or variation.
+	 * @return ULIXSU_Subscription
+	 */
+	protected static function handle_existing_subscription_order( $order, $existing_sub, $product ) {
+		$parent_pid    = $product->get_parent_id() ? $product->get_parent_id() : $product->get_id();
+		$is_switch     = ! $existing_sub->has_product( $product->get_id() );
+
+		if ( $is_switch ) {
+			$old_item_id = 0;
+			foreach ( $existing_sub->get_items() as $sub_item_id => $sub_item ) {
+				if ( (int) $sub_item->get_product_id() === (int) $parent_pid ) {
+					$old_item_id = $sub_item_id;
+					break;
+				}
+			}
+			foreach ( $order->get_items( 'line_item' ) as $order_item ) {
+				if ( (int) $order_item->get_product_id() === (int) $parent_pid ) {
+					$order_item->update_meta_data(
+						'_subscription_switch_data',
+						array(
+							'subscription_id'        => $existing_sub->get_id(),
+							'item_id'                => $old_item_id,
+							'next_payment_timestamp' => $existing_sub->get_time( 'next_payment' ),
+							'upgraded_or_downgraded' => 'switched',
+						)
+					);
+					$order_item->save();
+				}
+			}
+			ulixsu_add_order_subscription_relation( $order, $existing_sub->get_id(), 'switch' );
+			if ( $order->has_status( array( 'processing', 'completed', 'on-hold' ) ) ) {
+				ULIXSU_Switcher::complete_switch_for_order( $order->get_id() );
+			}
+		} else {
+			ulixsu_add_order_subscription_relation( $order, $existing_sub->get_id(), 'renewal' );
+			$order->update_meta_data( '_subscription_renewal_early', $existing_sub->get_id() );
+			$order->save();
+			if ( $order->has_status( array( 'processing', 'completed', 'on-hold' ) ) ) {
+				ULIXSU_Renewal_Order::maybe_record_subscription_payment( $order->get_id(), $order );
+			}
+		}
+
+		return $existing_sub;
+	}
+}
+

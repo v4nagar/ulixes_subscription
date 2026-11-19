@@ -1,0 +1,598 @@
+<?php
+/**
+ * Admin Meta Boxes on the Subscription & Order Edit Screens.
+ *
+ * Adds:
+ * 1. "Billing Schedule" meta box on `shop_subscription` (interval, period, start date, trial end, next payment, end date, timezone note, gateway token fields).
+ * 2. "Related Orders" meta box on both `shop_subscription` and `shop_order` showing all linked Parent, Renewal, Resubscribe, and Switch orders/subscriptions.
+ * 3. Subscription Order Actions in the "Order Actions" dropdown on `shop_subscription`:
+ *    - Process renewal (charge gateway or generate manual renewal order)
+ *    - Create pending renewal order
+ *    - Retry failed renewal payment
+ *
+ * @package Ulixes_Subscriptions
+ */
+
+defined( 'ABSPATH' ) || exit;
+
+// phpcs:disable WordPress.NamingConventions.PrefixAllGlobals
+
+/**
+ * ULIXSU_Admin_Meta_Boxes
+ */
+class ULIXSU_Admin_Meta_Boxes {
+
+	/**
+	 * Init hooks.
+	 */
+	public static function init() {
+		add_action( 'add_meta_boxes', array( __CLASS__, 'add_meta_boxes' ), 25 );
+		add_action( 'woocommerce_process_shop_order_meta', array( __CLASS__, 'save_subscription_schedule_meta' ), 55, 2 );
+		add_action( 'woocommerce_process_shop_order_meta', array( __CLASS__, 'lock_ended_subscription_status' ), 1, 2 );
+		add_filter( 'woocommerce_order_actions', array( __CLASS__, 'add_subscription_actions' ), 10, 2 );
+		add_action( 'admin_enqueue_scripts', array( __CLASS__, 'enqueue_admin_assets' ) );
+
+		add_action( 'woocommerce_order_action_ulixsu_process_renewal', array( __CLASS__, 'action_process_renewal' ) );
+		add_action( 'woocommerce_order_action_ulixsu_create_pending_renewal', array( __CLASS__, 'action_create_pending_renewal' ) );
+		add_action( 'woocommerce_order_action_ulixsu_retry_renewal_payment', array( __CLASS__, 'action_retry_renewal_payment' ) );
+	}
+
+	/**
+	 * Prevent changing the status of a subscription that is in an ended state (Cancelled, Switched, Expired).
+	 *
+	 * @param int          $post_id Post/Order ID.
+	 * @param WP_Post|null $post    Post object.
+	 */
+	public static function lock_ended_subscription_status( $post_id, $post = null ) {
+		if ( ! current_user_can( 'edit_shop_orders' ) && ! current_user_can( 'manage_woocommerce' ) ) {
+			return;
+		}
+		$valid_schedule_nonce = isset( $_POST['_ulixsu_schedule_nonce'] ) && wp_verify_nonce( sanitize_text_field( wp_unslash( $_POST['_ulixsu_schedule_nonce'] ) ), 'ulixsu_save_schedule_meta' );
+		$valid_order_nonce    = isset( $_POST['woocommerce_meta_nonce'] ) && wp_verify_nonce( sanitize_text_field( wp_unslash( $_POST['woocommerce_meta_nonce'] ) ), 'woocommerce_save_data' );
+		if ( ! $valid_schedule_nonce && ! $valid_order_nonce ) {
+			return;
+		}
+		if ( ! ulixsu_is_subscription( $post_id ) ) {
+			return;
+		}
+		$sub = ulixsu_get_subscription( $post_id );
+		if ( ! $sub || ! $sub->has_status( ULIXSU_Subscription::get_ended_statuses() ) ) {
+			return;
+		}
+		// Overwrite any submitted status so WooCommerce cannot change it.
+		if ( isset( $_POST['order_status'] ) ) {
+			$_POST['order_status'] = 'wc-' . $sub->get_status();
+		}
+	}
+
+	/**
+	 * Enqueue admin scripts and inline script on the edit subscription page to visually lock the status dropdown when ended
+	 * and strip non-subscription order statuses (Processing, Completed, Refunded) from the select element.
+	 *
+	 * @param string $hook Page hook.
+	 */
+	public static function enqueue_admin_assets( $hook = '' ) {
+		$screen = function_exists( 'get_current_screen' ) ? get_current_screen() : null;
+		if ( ! $screen ) {
+			return;
+		}
+
+		$is_sub_screen = ( 'shop_subscription' === $screen->id || 'woocommerce_page_wc-orders--shop_subscription' === $screen->id );
+		$is_prod_screen = ( 'product' === $screen->id );
+
+		if ( ! $is_sub_screen && ! $is_prod_screen ) {
+			return;
+		}
+
+		wp_register_script(
+			'ulixsu-admin',
+			ULIXSU_PLUGIN_URL . 'assets/js/admin.js',
+			array( 'jquery' ),
+			ULIXSU_VERSION,
+			true
+		);
+
+		if ( $is_sub_screen ) {
+			global $theorder, $post;
+			$sub_id = 0;
+			if ( $theorder instanceof WC_Order ) {
+				$sub_id = $theorder->get_id();
+			} elseif ( ! empty( $post->ID ) ) {
+				$sub_id = $post->ID;
+			}
+			// phpcs:disable WordPress.Security.NonceVerification.Recommended
+			if ( ! $sub_id && isset( $_GET['post'] ) ) {
+				$sub_id = absint( $_GET['post'] );
+			} elseif ( ! $sub_id && isset( $_GET['id'] ) ) {
+				$sub_id = absint( $_GET['id'] );
+			}
+			// phpcs:enable WordPress.Security.NonceVerification.Recommended
+
+			$sub      = $sub_id ? ulixsu_get_subscription( $sub_id ) : null;
+			$is_ended = ( $sub && $sub->has_status( ULIXSU_Subscription::get_ended_statuses() ) );
+
+			$locked_notice_text = esc_js( __( 'This subscription has ended and cannot be reactivated or changed.', 'ulixes-subscriptions' ) );
+			$inline_js = "jQuery(function($){
+				var \$status = $('#order_status');
+				if (!\$status.length) return;
+				var allowedSubStatuses = ['wc-active', 'wc-on-hold', 'wc-pending', 'wc-cancelled', 'wc-switched', 'wc-expired', 'wc-pending-cancel'];
+				\$status.find('option').each(function(){
+					if ($.inArray($(this).val(), allowedSubStatuses) === -1) { $(this).remove(); }
+				});";
+
+			if ( $is_ended ) {
+				$inline_js .= "
+				\$status.find('option').not(':selected').remove();
+				\$status.prop('disabled', true);
+				if (!$('#ulixsu-status-locked-notice').length) {
+					\$status.closest('.form-field').append(
+						'<p id=\"ulixsu-status-locked-notice\" style=\"margin-top:6px; font-size:12px; color:#c92a2a; font-weight:600;\">' +
+						'<span class=\"dashicons dashicons-lock\" style=\"font-size:14px; vertical-align:middle; line-height:1; margin-right:4px;\"></span>' +
+						'" . $locked_notice_text . "' +
+						'</p>'
+					);
+				}";
+			}
+
+			$inline_js .= "});";
+
+			wp_add_inline_script( 'ulixsu-admin', $inline_js );
+		}
+
+		wp_enqueue_script( 'ulixsu-admin' );
+	}
+
+	/**
+	 * Register meta boxes on Subscription and Order screens (both HPOS and CPT screen IDs).
+	 */
+	public static function add_meta_boxes() {
+		$sub_screens   = array( 'shop_subscription', 'woocommerce_page_wc-orders--shop_subscription' );
+		$order_screens = array( 'shop_order', 'woocommerce_page_wc-orders', 'shop_subscription', 'woocommerce_page_wc-orders--shop_subscription' );
+
+		foreach ( $sub_screens as $screen ) {
+			add_meta_box(
+				'ulixsu-subscription-schedule',
+				__( 'Schedule', 'ulixes-subscriptions' ),
+				array( __CLASS__, 'render_schedule_meta_box' ),
+				$screen,
+				'side',
+				'default'
+			);
+		}
+
+		foreach ( $order_screens as $screen ) {
+			add_meta_box(
+				'ulixsu-related-orders',
+				__( 'Related Orders', 'ulixes-subscriptions' ),
+				array( __CLASS__, 'render_related_orders_meta_box' ),
+				$screen,
+				'normal',
+				'low'
+			);
+		}
+	}
+
+	/**
+	 * Resolve the store timezone label from WooCommerce / WordPress settings (e.g. "Asia/Calcutta" or "UTC+5:30").
+	 *
+	 * @return string
+	 */
+	public static function get_store_timezone_label() {
+		$tz_string = get_option( 'timezone_string' );
+		if ( ! empty( $tz_string ) ) {
+			return $tz_string;
+		}
+		$offset  = (float) get_option( 'gmt_offset', 0 );
+		$seconds = (int) round( $offset * HOUR_IN_SECONDS );
+		if ( 19800 === $seconds ) {
+			return 'Asia/Calcutta';
+		}
+		if ( 0 !== $seconds ) {
+			$abbr_name = timezone_name_from_abbr( '', $seconds, 0 );
+			if ( ! empty( $abbr_name ) ) {
+				return $abbr_name;
+			}
+		}
+		$wc_country = (string) get_option( 'woocommerce_default_country', '' );
+		if ( 0 === strpos( $wc_country, 'IN' ) ) {
+			return 'Asia/Calcutta';
+		}
+		if ( function_exists( 'wc_timezone_string' ) ) {
+			$wc_tz = wc_timezone_string();
+			if ( ! empty( $wc_tz ) ) {
+				return $wc_tz;
+			}
+		}
+		return 'UTC';
+	}
+
+	/**
+	 * Render the Schedule meta box on the Subscription edit screen.
+	 *
+	 * @param WP_Post|WC_Order $post_or_order Post or Order object.
+	 */
+	public static function render_schedule_meta_box( $post_or_order ) {
+		$sub = $post_or_order instanceof ULIXSU_Subscription ? $post_or_order : ulixsu_get_subscription( $post_or_order instanceof WP_Post ? $post_or_order->ID : $post_or_order );
+		if ( ! $sub ) {
+			return;
+		}
+
+		wp_nonce_field( 'ulixsu_save_schedule_meta', '_ulixsu_schedule_nonce' );
+		$interval = $sub->get_billing_interval();
+		$period   = $sub->get_billing_period() ?: 'month';
+		$start_ts = $sub->get_time( 'start', 'gmt' );
+		?>
+		<div class="ulixsu-metabox-schedule">
+			<div class="ulixsu-schedule-payment-row">
+				<label for="_billing_interval" class="ulixsu-payment-label"><strong><?php esc_html_e( 'Payment:', 'ulixes-subscriptions' ); ?></strong></label>
+				<select name="_billing_interval" id="_billing_interval" class="ulixsu-billing-interval">
+					<?php foreach ( ulixsu_get_subscription_period_interval_strings() as $val => $label ) : ?>
+						<option value="<?php echo esc_attr( $val ); ?>" <?php selected( $val, $interval ); ?>><?php echo esc_html( $label ); ?></option>
+					<?php endforeach; ?>
+				</select>
+				<select name="_billing_period" id="_billing_period" class="ulixsu-billing-period">
+					<?php foreach ( ulixsu_get_subscription_period_strings() as $val => $label ) : ?>
+						<option value="<?php echo esc_attr( $val ); ?>" <?php selected( $val, $period ); ?>><?php echo esc_html( $label ); ?></option>
+					<?php endforeach; ?>
+				</select>
+			</div>
+
+			<div class="ulixsu-schedule-start-date">
+				<strong><?php esc_html_e( 'Start Date:', 'ulixes-subscriptions' ); ?></strong>
+				<?php if ( $start_ts ) : ?>
+					<span title="<?php echo esc_attr( $sub->get_date( 'start', 'site' ) ); ?>"><?php echo esc_html( ulixsu_human_time_diff( $start_ts ) ); ?></span>
+					<input type="hidden" name="ulixsu_schedule_start_preserved" value="1" />
+				<?php else : ?>
+					<span><?php echo esc_html( wp_date( 'Y-m-d', time() ) ); ?></span>
+				<?php endif; ?>
+			</div>
+
+			<?php
+			$date_fields = array(
+				'trial_end'    => __( 'Trial End', 'ulixes-subscriptions' ),
+				'next_payment' => __( 'Next Payment', 'ulixes-subscriptions' ),
+				'end'          => __( 'End Date', 'ulixes-subscriptions' ),
+			);
+			foreach ( $date_fields as $type => $label ) :
+				$site_val  = $sub->get_date( $type, 'site' );
+				$date_part = '';
+				$hour_part = '';
+				$min_part  = '';
+				$sec_part  = '00';
+				if ( ! empty( $site_val ) && '0' !== (string) $site_val && strlen( $site_val ) >= 16 ) {
+					$date_part = substr( $site_val, 0, 10 );
+					$hour_part = substr( $site_val, 11, 2 );
+					$min_part  = substr( $site_val, 14, 2 );
+					$sec_part  = strlen( $site_val ) >= 19 ? substr( $site_val, 17, 2 ) : '00';
+				}
+				?>
+				<div class="ulixsu-date-input">
+					<label for="ulixsu_schedule_<?php echo esc_attr( $type ); ?>_date"><?php echo esc_html( $label ); ?>:</label>
+					<div class="ulixsu-date-time-fields">
+						<input type="text" class="date-picker ulixsu-date-picker" id="ulixsu_schedule_<?php echo esc_attr( $type ); ?>_date" name="ulixsu_schedule_date[<?php echo esc_attr( $type ); ?>]" value="<?php echo esc_attr( $date_part ); ?>" placeholder="YYYY-MM-DD" maxlength="10" pattern="[0-9]{4}-(0[1-9]|1[012])-(0[1-9]|1[0-9]|2[0-9]|3[01])" />
+						<span class="ulixsu-at">@</span>
+						<input type="text" class="hour ulixsu-hour-input" id="ulixsu_schedule_<?php echo esc_attr( $type ); ?>_hour" name="ulixsu_schedule_hour[<?php echo esc_attr( $type ); ?>]" value="<?php echo esc_attr( $hour_part ); ?>" placeholder="HH" maxlength="2" size="2" pattern="([01]?[0-9]{1}|2[0-3]{1})" />
+						<span class="ulixsu-colon">:</span>
+						<input type="text" class="minute ulixsu-minute-input" id="ulixsu_schedule_<?php echo esc_attr( $type ); ?>_minute" name="ulixsu_schedule_minute[<?php echo esc_attr( $type ); ?>]" value="<?php echo esc_attr( $min_part ); ?>" placeholder="MM" maxlength="2" size="2" pattern="[0-5]{1}[0-9]{1}" />
+						<input type="hidden" name="ulixsu_schedule_second[<?php echo esc_attr( $type ); ?>]" value="<?php echo esc_attr( $sec_part ); ?>" />
+					</div>
+				</div>
+			<?php endforeach; ?>
+
+			<p class="ulixsu-timezone-info">
+				<?php
+				/* translators: %s: store timezone name */
+				printf( esc_html__( 'Timezone: %s', 'ulixes-subscriptions' ), esc_html( self::get_store_timezone_label() ) );
+				?>
+			</p>
+
+			<?php
+			$payment_meta = ULIXSU_Payment_Gateways::get_payment_meta( $sub );
+			$gw_id        = $sub->get_payment_method();
+			if ( ! empty( $payment_meta[ $gw_id ]['post_meta'] ) ) :
+				?>
+				<hr/>
+				<p><strong><?php esc_html_e( 'Gateway Payment Tokens:', 'ulixes-subscriptions' ); ?></strong></p>
+				<?php foreach ( $payment_meta[ $gw_id ]['post_meta'] as $meta_key => $info ) : ?>
+					<p class="form-field">
+						<label><?php echo esc_html( $info['label'] ); ?>:</label><br/>
+						<input type="text" class="widefat" name="ulixsu_gateway_meta[<?php echo esc_attr( $meta_key ); ?>]" value="<?php echo esc_attr( $info['value'] ); ?>" />
+					</p>
+				<?php endforeach; ?>
+			<?php endif; ?>
+		</div>
+		<?php
+	}
+
+	/**
+	 * Save Schedule & Gateway Token meta when a subscription is saved in admin.
+	 *
+	 * @param int          $post_id Post ID.
+	 * @param WP_Post|null $post    Post or Order.
+	 */
+	public static function save_subscription_schedule_meta( $post_id, $post = null ) {
+		if ( ! current_user_can( 'edit_shop_orders' ) && ! current_user_can( 'manage_woocommerce' ) ) {
+			return;
+		}
+		if ( empty( $_POST['_ulixsu_schedule_nonce'] ) || ! wp_verify_nonce( sanitize_text_field( wp_unslash( $_POST['_ulixsu_schedule_nonce'] ) ), 'ulixsu_save_schedule_meta' ) ) {
+			return;
+		}
+		$sub = ulixsu_get_subscription( $post_id );
+		if ( ! $sub ) {
+			return;
+		}
+
+		if ( isset( $_POST['_billing_interval'] ) ) {
+			$sub->set_billing_interval( absint( $_POST['_billing_interval'] ) );
+		}
+		if ( isset( $_POST['_billing_period'] ) ) {
+			$sub->set_billing_period( sanitize_text_field( wp_unslash( $_POST['_billing_period'] ) ) );
+		}
+
+		if ( isset( $_POST['_requires_manual_renewal'] ) ) {
+			$sub->set_requires_manual_renewal( ! empty( $_POST['_requires_manual_renewal'] ) );
+		}
+
+		if ( ! empty( $_POST['ulixsu_gateway_meta'] ) && is_array( $_POST['ulixsu_gateway_meta'] ) ) {
+			foreach ( wp_unslash( $_POST['ulixsu_gateway_meta'] ) as $k => $v ) { // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized
+				$sub->update_meta_data( sanitize_key( $k ), sanitize_text_field( $v ) );
+			}
+		}
+
+		if ( isset( $_POST['ulixsu_schedule_date'] ) && is_array( $_POST['ulixsu_schedule_date'] ) ) {
+			$raw_dates   = wp_unslash( $_POST['ulixsu_schedule_date'] ); // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized
+			$raw_hours   = isset( $_POST['ulixsu_schedule_hour'] ) && is_array( $_POST['ulixsu_schedule_hour'] ) ? wp_unslash( $_POST['ulixsu_schedule_hour'] ) : array(); // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized
+			$raw_minutes = isset( $_POST['ulixsu_schedule_minute'] ) && is_array( $_POST['ulixsu_schedule_minute'] ) ? wp_unslash( $_POST['ulixsu_schedule_minute'] ) : array(); // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized
+			$raw_seconds = isset( $_POST['ulixsu_schedule_second'] ) && is_array( $_POST['ulixsu_schedule_second'] ) ? wp_unslash( $_POST['ulixsu_schedule_second'] ) : array(); // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized
+
+			$dates = array();
+			foreach ( $raw_dates as $type => $date_str ) {
+				$type     = sanitize_key( $type );
+				$date_str = trim( sanitize_text_field( $date_str ) );
+				if ( '' === $date_str ) {
+					$dates[ $type ] = 0;
+					continue;
+				}
+				$hh = isset( $raw_hours[ $type ] ) && '' !== trim( $raw_hours[ $type ] ) ? str_pad( (string) min( 23, max( 0, absint( $raw_hours[ $type ] ) ) ), 2, '0', STR_PAD_LEFT ) : '23';
+				$mm = isset( $raw_minutes[ $type ] ) && '' !== trim( $raw_minutes[ $type ] ) ? str_pad( (string) min( 59, max( 0, absint( $raw_minutes[ $type ] ) ) ), 2, '0', STR_PAD_LEFT ) : '59';
+				$ss = isset( $raw_seconds[ $type ] ) && '' !== trim( $raw_seconds[ $type ] ) ? str_pad( (string) min( 59, max( 0, absint( $raw_seconds[ $type ] ) ) ), 2, '0', STR_PAD_LEFT ) : '00';
+
+				$dates[ $type ] = "{$date_str} {$hh}:{$mm}:{$ss}";
+			}
+			try {
+				$sub->update_dates( $dates, 'site' );
+			} catch ( Exception $e ) {
+				WC_Admin_Meta_Boxes::add_error( $e->getMessage() );
+			}
+		} elseif ( ! empty( $_POST['ulixsu_schedule_dates'] ) && is_array( $_POST['ulixsu_schedule_dates'] ) ) {
+			$dates = array();
+			foreach ( wp_unslash( $_POST['ulixsu_schedule_dates'] ) as $type => $date_str ) { // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized
+				$type     = sanitize_key( $type );
+				$date_str = trim( sanitize_text_field( $date_str ) );
+				$dates[ $type ] = '' === $date_str ? 0 : $date_str;
+			}
+			try {
+				$sub->update_dates( $dates, 'gmt' );
+			} catch ( Exception $e ) {
+				WC_Admin_Meta_Boxes::add_error( $e->getMessage() );
+			}
+		}
+
+		$sub->save();
+
+		if ( class_exists( 'ULIXSU_Scheduler' ) ) {
+			ULIXSU_Scheduler::process_overdue_for_subscription( $sub );
+		}
+	}
+
+	/**
+	 * Render the Related Orders meta box on both Subscriptions and Orders.
+	 *
+	 * @param WP_Post|WC_Order $post_or_order Post or Order.
+	 */
+	public static function render_related_orders_meta_box( $post_or_order ) {
+		$id    = $post_or_order instanceof WC_Order ? $post_or_order->get_id() : ( $post_or_order instanceof WP_Post ? $post_or_order->ID : absint( $post_or_order ) );
+		$order = wc_get_order( $id );
+		if ( ! $order ) {
+			return;
+		}
+
+		$rows = array();
+
+		if ( $order instanceof ULIXSU_Subscription ) {
+			$sub = $order;
+			if ( $sub->get_parent_id() ) {
+				$p = $sub->get_parent();
+				if ( $p ) {
+					$rows[] = array(
+						'obj'  => $p,
+						'type' => __( 'Parent Order', 'ulixes-subscriptions' ),
+					);
+				}
+			}
+			foreach ( array(
+				'renewal'     => __( 'Renewal Order', 'ulixes-subscriptions' ),
+				'switch'      => __( 'Switch Order', 'ulixes-subscriptions' ),
+				'resubscribe' => __( 'Resubscribe Order', 'ulixes-subscriptions' ),
+			) as $rel_key => $label ) {
+				foreach ( $sub->get_related_orders( 'all', $rel_key ) as $rel_order ) {
+					$rows[] = array(
+						'obj'  => $rel_order,
+						'type' => $label,
+					);
+				}
+			}
+		} else {
+			$subs = ulixsu_get_subscriptions_for_order( $order, array( 'order_type' => 'any' ) );
+			foreach ( $subs as $sub ) {
+				$rows[] = array(
+					'obj'  => $sub,
+					'type' => __( 'Subscription', 'ulixes-subscriptions' ),
+				);
+				if ( $sub->get_parent_id() && (int) $sub->get_parent_id() !== (int) $order->get_id() ) {
+					$p = $sub->get_parent();
+					if ( $p ) {
+						$rows[] = array(
+							'obj'  => $p,
+							'type' => __( 'Parent Order', 'ulixes-subscriptions' ),
+						);
+					}
+				}
+				foreach ( $sub->get_related_orders( 'all', 'renewal' ) as $ren ) {
+					if ( (int) $ren->get_id() !== (int) $order->get_id() ) {
+						$rows[] = array(
+							'obj'  => $ren,
+							'type' => __( 'Renewal Order', 'ulixes-subscriptions' ),
+						);
+					}
+				}
+			}
+		}
+
+		if ( empty( $rows ) ) {
+			echo '<p>' . esc_html__( 'No related orders or subscriptions found.', 'ulixes-subscriptions' ) . '</p>';
+			return;
+		}
+		?>
+		<table class="widefat striped ulixsu-related-orders-table">
+			<thead>
+				<tr>
+					<th><?php esc_html_e( 'Order / Subscription Number', 'ulixes-subscriptions' ); ?></th>
+					<th><?php esc_html_e( 'Relationship', 'ulixes-subscriptions' ); ?></th>
+					<th><?php esc_html_e( 'Date', 'ulixes-subscriptions' ); ?></th>
+					<th><?php esc_html_e( 'Status', 'ulixes-subscriptions' ); ?></th>
+					<th><?php esc_html_e( 'Total', 'ulixes-subscriptions' ); ?></th>
+				</tr>
+			</thead>
+			<tbody>
+				<?php
+				foreach ( $rows as $row ) :
+					$o = $row['obj'];
+					$status_label = $o instanceof ULIXSU_Subscription ? ulixsu_get_subscription_status_name( $o->get_status() ) : wc_get_order_status_name( $o->get_status() );
+					?>
+					<tr>
+						<td><a href="<?php echo esc_url( $o->get_edit_order_url() ); ?>"><strong>#<?php echo esc_html( $o->get_order_number() ); ?></strong></a></td>
+						<td><?php echo esc_html( $row['type'] ); ?></td>
+						<td><?php echo esc_html( $o->get_date_created() ? wc_format_datetime( $o->get_date_created() ) : '-' ); ?></td>
+						<td><mark class="order-status status-<?php echo esc_attr( $o->get_status() ); ?>"><span><?php echo esc_html( $status_label ); ?></span></mark></td>
+						<td><?php echo wp_kses_post( $o->get_formatted_order_total() ); ?></td>
+					</tr>
+				<?php endforeach; ?>
+			</tbody>
+		</table>
+		<?php
+	}
+
+	/**
+	 * Add Subscription-specific actions to the "Order Actions" dropdown on the Subscription edit screen.
+	 *
+	 * @param array         $actions Actions.
+	 * @param WC_Order|null $order   Order.
+	 * @return array
+	 */
+	public static function add_subscription_actions( $actions, $order = null ) {
+		if ( ! $order ) {
+			global $theorder;
+			$order = $theorder;
+		}
+		if ( ! ( $order instanceof ULIXSU_Subscription ) ) {
+			return $actions;
+		}
+
+		if ( $order->has_status( array( 'active', 'on-hold' ) ) ) {
+			$actions['ulixsu_process_renewal']        = __( 'Process renewal', 'ulixes-subscriptions' );
+			$actions['ulixsu_create_pending_renewal'] = __( 'Create pending renewal order', 'ulixes-subscriptions' );
+		}
+
+		$last_renewal = $order->get_last_order( 'all', 'renewal' );
+		if ( $last_renewal && $last_renewal->has_status( array( 'failed', 'pending', 'on-hold' ) ) && ! $order->is_manual() ) {
+			$actions['ulixsu_retry_renewal_payment'] = __( 'Retry renewal payment', 'ulixes-subscriptions' );
+		}
+
+		return $actions;
+	}
+
+	/**
+	 * Order Action: Process renewal now (creates renewal order + triggers gateway if automatic).
+	 *
+	 * @param WC_Order $order Subscription.
+	 */
+	public static function action_process_renewal( $order ) {
+		if ( ! current_user_can( 'edit_shop_orders' ) ) {
+			return;
+		}
+		$sub = ulixsu_get_subscription( $order );
+		if ( ! $sub ) {
+			return;
+		}
+		try {
+			$sub->add_order_note( __( 'Process renewal action requested by admin.', 'ulixes-subscriptions' ), 0, true );
+			ULIXSU_Manager::prepare_renewal( $sub->get_id() );
+			ULIXSU_Manager::maybe_process_gateway_renewal( $sub->get_id() );
+		} catch ( Throwable $e ) {
+			ulixsu_log( 'action_process_renewal error on subscription #' . $sub->get_id() . ': ' . $e->getMessage(), 'error' );
+			$sub->add_order_note( sprintf( /* translators: %s: error message */ __( 'Error processing renewal: %s', 'ulixes-subscriptions' ), $e->getMessage() ), 0, true );
+		}
+	}
+
+	/**
+	 * Order Action: Create a pending renewal order without charging the gateway.
+	 *
+	 * @param WC_Order $order Subscription.
+	 */
+	public static function action_create_pending_renewal( $order ) {
+		if ( ! current_user_can( 'edit_shop_orders' ) ) {
+			return;
+		}
+		$sub = ulixsu_get_subscription( $order );
+		if ( ! $sub ) {
+			return;
+		}
+		try {
+			$renewal = ulixsu_create_renewal_order( $sub );
+			if ( is_wp_error( $renewal ) ) {
+				$sub->add_order_note( sprintf( /* translators: %s: error message */ __( 'Failed to create pending renewal order: %s', 'ulixes-subscriptions' ), $renewal->get_error_message() ), 0, true );
+				return;
+			}
+			$note = sprintf(
+				/* translators: %s: order number */
+				__( 'Pending renewal order #%s created by admin.', 'ulixes-subscriptions' ),
+				$renewal->get_order_number()
+			);
+			if ( $sub->can_be_updated_to( 'on-hold' ) ) {
+				$sub->update_status( 'on-hold', $note, true );
+			} else {
+				$sub->add_order_note( $note, 0, true );
+			}
+		} catch ( Throwable $e ) {
+			ulixsu_log( 'action_create_pending_renewal error on subscription #' . $sub->get_id() . ': ' . $e->getMessage(), 'error' );
+			$sub->add_order_note( sprintf( /* translators: %s: error message */ __( 'Error creating pending renewal order: %s', 'ulixes-subscriptions' ), $e->getMessage() ), 0, true );
+		}
+	}
+
+	/**
+	 * Order Action: Retry failed renewal payment via gateway.
+	 *
+	 * @param WC_Order $order Subscription.
+	 */
+	public static function action_retry_renewal_payment( $order ) {
+		if ( ! current_user_can( 'edit_shop_orders' ) ) {
+			return;
+		}
+		$sub = ulixsu_get_subscription( $order );
+		if ( ! $sub ) {
+			return;
+		}
+		try {
+			$last_renewal = $sub->get_last_order( 'all', 'renewal' );
+			if ( $last_renewal ) {
+				$sub->add_order_note( __( 'Admin triggered manual retry of renewal payment.', 'ulixes-subscriptions' ), 0, true );
+				ULIXSU_Payment_Gateways::trigger_gateway_renewal_payment_hook( $last_renewal );
+			}
+		} catch ( Throwable $e ) {
+			ulixsu_log( 'action_retry_renewal_payment error on subscription #' . $sub->get_id() . ': ' . $e->getMessage(), 'error' );
+			$sub->add_order_note( sprintf( /* translators: %s: error message */ __( 'Error retrying renewal payment: %s', 'ulixes-subscriptions' ), $e->getMessage() ), 0, true );
+		}
+	}
+}
+

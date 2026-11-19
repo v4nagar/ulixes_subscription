@@ -52,11 +52,11 @@
 
 	function updateLengthOptions($periodSelect, $lengthSelect) {
 		var period = $periodSelect.val();
-		if (!ulx_admin_params || !ulx_admin_params.ranges || !ulx_admin_params.ranges[period]) {
+		if (!ulixsu_admin_params || !ulixsu_admin_params.ranges || !ulixsu_admin_params.ranges[period]) {
 			return;
 		}
 		var currentVal = $lengthSelect.val();
-		var ranges = ulx_admin_params.ranges[period];
+		var ranges = ulixsu_admin_params.ranges[period];
 		$lengthSelect.empty();
 		$.each(ranges, function (val, label) {
 			var $opt = $('<option></option>').attr('value', val).text(label);
@@ -103,14 +103,14 @@
 			toggleSubscriptionProductFields();
 		});
 
-		if ($.fn.datepicker && $('.ulx-date-picker').length) {
-			$('.ulx-date-picker').datepicker({
+		if ($.fn.datepicker && $('.ulixsu-date-picker').length) {
+			$('.ulixsu-date-picker').datepicker({
 				dateFormat: 'yy-mm-dd',
 				showButtonPanel: true,
 				onSelect: function (dateText) {
-					var $wrap = $(this).closest('.ulx-date-time-fields');
-					var $hh = $wrap.find('.ulx-hour-input');
-					var $mm = $wrap.find('.ulx-minute-input');
+					var $wrap = $(this).closest('.ulixsu-date-time-fields');
+					var $hh = $wrap.find('.ulixsu-hour-input');
+					var $mm = $wrap.find('.ulixsu-minute-input');
 					if (dateText && '' === $.trim($hh.val())) {
 						$hh.val('23');
 					}

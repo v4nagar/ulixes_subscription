@@ -9,7 +9,7 @@
  * - Customer Billing & Shipping addresses
  *
  * @package Ulixes_Subscriptions
- * @var ULX_Subscription $subscription
+ * @var ULIXSU_Subscription $subscription
  * @var int              $user_id
  */
 
@@ -19,12 +19,12 @@ defined( 'ABSPATH' ) || exit;
 
 wc_print_notices();
 ?>
-<div class="ulx-view-subscription-wrap">
+<div class="ulixsu-view-subscription-wrap">
 	<table class="shop_table subscription_details">
 		<tbody>
 			<tr>
 				<td><?php esc_html_e( 'Status', 'ulixes-subscriptions' ); ?></td>
-				<td><?php echo esc_html( ulx_get_subscription_status_name( $subscription->get_status() ) ); ?></td>
+				<td><?php echo esc_html( ulixsu_get_subscription_status_name( $subscription->get_status() ) ); ?></td>
 			</tr>
 			<tr>
 				<td><?php esc_html_e( 'Start date', 'ulixes-subscriptions' ); ?></td>
@@ -61,22 +61,22 @@ wc_print_notices();
 			<tr>
 				<td><?php esc_html_e( 'Payment', 'ulixes-subscriptions' ); ?></td>
 				<td>
-					<span class="ulx-payment-method-display"><?php echo esc_html( $subscription->get_payment_method_to_display( 'customer' ) ); ?></span>
+					<span class="ulixsu-payment-method-display"><?php echo esc_html( $subscription->get_payment_method_to_display( 'customer' ) ); ?></span>
 				</td>
 			</tr>
-			<?php if ( ULX_Auto_Renew_Toggle::can_user_toggle_auto_renewal( $subscription ) ) : ?>
+			<?php if ( ULIXSU_Auto_Renew_Toggle::can_user_toggle_auto_renewal( $subscription ) ) : ?>
 				<tr>
 					<td><?php esc_html_e( 'Auto renew', 'ulixes-subscriptions' ); ?></td>
 					<td>
-						<label class="ulx-auto-renew-toggle">
-							<input type="checkbox" class="ulx-auto-renew-checkbox" data-subscription-id="<?php echo esc_attr( $subscription->get_id() ); ?>" <?php checked( ! $subscription->is_manual(), true ); ?> />
-							<span class="ulx-toggle-slider"></span>
+						<label class="ulixsu-auto-renew-toggle">
+							<input type="checkbox" class="ulixsu-auto-renew-checkbox" data-subscription-id="<?php echo esc_attr( $subscription->get_id() ); ?>" <?php checked( ! $subscription->is_manual(), true ); ?> />
+							<span class="ulixsu-toggle-slider"></span>
 						</label>
 					</td>
 				</tr>
 			<?php endif; ?>
 			<?php
-			$actions = ulx_get_all_user_actions_for_subscription( $subscription, get_current_user_id() );
+			$actions = ulixsu_get_all_user_actions_for_subscription( $subscription, get_current_user_id() );
 			if ( ! empty( $actions ) ) :
 				?>
 				<tr>
@@ -113,10 +113,10 @@ wc_print_notices();
 						echo ' <strong class="product-quantity">&times;&nbsp;' . esc_html( $item->get_quantity() ) . '</strong>';
 						wc_display_item_meta( $item );
 
-						if ( ulx_can_item_be_switched_by_user( $subscription, $item ) ) {
-							$switch_url  = ulx_get_switch_url( $item_id, $item, $subscription );
-							$switch_text = ulx_get_option( 'switch_button_text', __( 'Upgrade or Downgrade', 'ulixes-subscriptions' ) );
-							echo ' <a href="' . esc_url( $switch_url ) . '" class="button ulx-switch-link">' . esc_html( $switch_text ) . '</a>';
+						if ( ulixsu_can_item_be_switched_by_user( $subscription, $item ) ) {
+							$switch_url  = ulixsu_get_switch_url( $item_id, $item, $subscription );
+							$switch_text = ulixsu_get_option( 'switch_button_text', __( 'Upgrade or Downgrade', 'ulixes-subscriptions' ) );
+							echo ' <a href="' . esc_url( $switch_url ) . '" class="button ulixsu-switch-link">' . esc_html( $switch_text ) . '</a>';
 						}
 						?>
 					</td>

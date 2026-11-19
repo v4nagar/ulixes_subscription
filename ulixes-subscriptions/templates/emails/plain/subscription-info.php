@@ -3,7 +3,7 @@
  * Plain-text subscription info appended to WooCommerce order emails.
  *
  * @package Ulixes_Subscriptions
- * @var ULX_Subscription[] $subscriptions
+ * @var ULIXSU_Subscription[] $subscriptions
  */
 
 defined( 'ABSPATH' ) || exit;

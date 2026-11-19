@@ -23,7 +23,7 @@ if ( empty( $recurring_carts ) ) {
 	<tr class="cart-subtotal recurring-total">
 		<th><?php esc_html_e( 'Subtotal', 'ulixes-subscriptions' ); ?></th>
 		<td data-title="<?php esc_attr_e( 'Subtotal', 'ulixes-subscriptions' ); ?>">
-			<?php echo wp_kses_post( ulx_cart_price_string( $recurring_cart->get_cart_subtotal(), $recurring_cart ) ); ?>
+			<?php echo wp_kses_post( ulixsu_cart_price_string( $recurring_cart->get_cart_subtotal(), $recurring_cart ) ); ?>
 		</td>
 	</tr>
 
@@ -31,7 +31,7 @@ if ( empty( $recurring_carts ) ) {
 		<tr class="cart-discount coupon-<?php echo esc_attr( sanitize_title( $code ) ); ?> recurring-total">
 			<th><?php wc_cart_totals_coupon_label( $coupon ); ?></th>
 			<td data-title="<?php echo esc_attr( wc_cart_totals_coupon_label( $coupon, false ) ); ?>">
-				<?php echo wp_kses_post( ulx_cart_price_string( '-' . wc_price( $recurring_cart->get_coupon_discount_amount( $code, $recurring_cart->display_cart_ex_tax ) ), $recurring_cart ) ); ?>
+				<?php echo wp_kses_post( ulixsu_cart_price_string( '-' . wc_price( $recurring_cart->get_coupon_discount_amount( $code, $recurring_cart->display_cart_ex_tax ) ), $recurring_cart ) ); ?>
 			</td>
 		</tr>
 	<?php endforeach; ?>
@@ -40,7 +40,7 @@ if ( empty( $recurring_carts ) ) {
 		<tr class="shipping recurring-total">
 			<th><?php esc_html_e( 'Recurring Shipping', 'ulixes-subscriptions' ); ?></th>
 			<td data-title="<?php esc_attr_e( 'Recurring Shipping', 'ulixes-subscriptions' ); ?>">
-				<?php echo wp_kses_post( ulx_cart_price_string( wc_price( $recurring_cart->get_shipping_total() ), $recurring_cart ) ); ?>
+				<?php echo wp_kses_post( ulixsu_cart_price_string( wc_price( $recurring_cart->get_shipping_total() ), $recurring_cart ) ); ?>
 			</td>
 		</tr>
 	<?php endif; ?>
@@ -55,12 +55,12 @@ if ( empty( $recurring_carts ) ) {
 	<tr class="order-total recurring-total">
 		<th><?php esc_html_e( 'Recurring total', 'ulixes-subscriptions' ); ?></th>
 		<td data-title="<?php esc_attr_e( 'Recurring total', 'ulixes-subscriptions' ); ?>">
-			<strong><?php echo wp_kses_post( ulx_cart_price_string( $recurring_cart->get_total(), $recurring_cart ) ); ?></strong>
+			<strong><?php echo wp_kses_post( ulixsu_cart_price_string( $recurring_cart->get_total(), $recurring_cart ) ); ?></strong>
 			<?php if ( ! empty( $recurring_cart->next_payment_date ) ) : ?>
 				<div class="first-payment-date"><small>
 					<?php
 					/* translators: %s: first renewal date */
-					printf( esc_html__( 'First renewal: %s', 'ulixes-subscriptions' ), esc_html( ulx_format_date( $recurring_cart->next_payment_date ) ) );
+					printf( esc_html__( 'First renewal: %s', 'ulixes-subscriptions' ), esc_html( ulixsu_format_date( $recurring_cart->next_payment_date ) ) );
 					?>
 				</small></div>
 			<?php endif; ?>

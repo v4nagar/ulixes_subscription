@@ -3,7 +3,7 @@
  * Related Subscriptions section on My Account -> View Order page.
  *
  * @package Ulixes_Subscriptions
- * @var ULX_Subscription[] $subscriptions
+ * @var ULIXSU_Subscription[] $subscriptions
  */
 
 defined( 'ABSPATH' ) || exit;
@@ -15,7 +15,7 @@ if ( empty( $subscriptions ) ) {
 }
 ?>
 <header><h2><?php esc_html_e( 'Related Subscriptions', 'ulixes-subscriptions' ); ?></h2></header>
-<table class="shop_table shop_table_responsive my_account_orders ulx-related-subscriptions">
+<table class="shop_table shop_table_responsive my_account_orders ulixsu-related-subscriptions">
 	<thead>
 		<tr>
 			<th><?php esc_html_e( 'Subscription', 'ulixes-subscriptions' ); ?></th>
@@ -29,7 +29,7 @@ if ( empty( $subscriptions ) ) {
 		<?php foreach ( $subscriptions as $subscription ) : ?>
 			<tr>
 				<td><a href="<?php echo esc_url( $subscription->get_view_order_url() ); ?>">#<?php echo esc_html( $subscription->get_order_number() ); ?></a></td>
-				<td><?php echo esc_html( ulx_get_subscription_status_name( $subscription->get_status() ) ); ?></td>
+				<td><?php echo esc_html( ulixsu_get_subscription_status_name( $subscription->get_status() ) ); ?></td>
 				<td><?php echo esc_html( $subscription->get_date_to_display( 'next_payment' ) ); ?></td>
 				<td><?php echo wp_kses_post( $subscription->get_formatted_order_total() ); ?></td>
 				<td><a href="<?php echo esc_url( $subscription->get_view_order_url() ); ?>" class="button view"><?php esc_html_e( 'View', 'ulixes-subscriptions' ); ?></a></td>

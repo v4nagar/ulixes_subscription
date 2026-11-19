@@ -58,47 +58,45 @@ add_action(
 	}
 );
 
-if ( ! defined( 'ULX_VERSION' ) ) {
-	define( 'ULX_VERSION', '1.0.0' );
+if ( ! defined( 'ULIXSU_VERSION' ) ) {
+	define( 'ULIXSU_VERSION', '1.0.0' );
 }
-if ( ! defined( 'ULX_PLUGIN_FILE' ) ) {
-	define( 'ULX_PLUGIN_FILE', __FILE__ );
+if ( ! defined( 'ULIXSU_PLUGIN_FILE' ) ) {
+	define( 'ULIXSU_PLUGIN_FILE', __FILE__ );
 }
-if ( ! defined( 'ULX_PLUGIN_DIR' ) ) {
-	define( 'ULX_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
+if ( ! defined( 'ULIXSU_PLUGIN_DIR' ) ) {
+	define( 'ULIXSU_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 }
-if ( ! defined( 'ULX_PLUGIN_URL' ) ) {
-	define( 'ULX_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
+if ( ! defined( 'ULIXSU_PLUGIN_URL' ) ) {
+	define( 'ULIXSU_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
 }
-if ( ! defined( 'ULX_PLUGIN_BASENAME' ) ) {
-	define( 'ULX_PLUGIN_BASENAME', plugin_basename( __FILE__ ) );
+if ( ! defined( 'ULIXSU_PLUGIN_BASENAME' ) ) {
+	define( 'ULIXSU_PLUGIN_BASENAME', plugin_basename( __FILE__ ) );
 }
 
-require_once ULX_PLUGIN_DIR . 'includes/class-ulx-dependency-manager.php';
+require_once ULIXSU_PLUGIN_DIR . 'includes/class-ulixsu-dependency-manager.php';
 
-if ( ! function_exists( 'ulx_init_plugin' ) ) {
-	/**
-	 * Boot the plugin once all plugins are loaded.
-	 */
-	function ulx_init_plugin() {
-		if ( ! ULX_Dependency_Manager::are_dependencies_met() ) {
-			ULX_Dependency_Manager::init_notices();
-			return;
-		}
-		if ( '1.0.5' !== get_option( 'ulx_db_migration_version' ) ) {
-			update_option( 'ulx_accept_manual_renewals', 'yes' );
-			update_option( 'ulx_allow_switching_variable', 'yes' );
-			update_option( 'ulx_allow_switching_grouped', 'yes' );
-			update_option( 'ulx_enable_early_renewal', 'yes' );
-			update_option( 'ulx_enable_auto_renewal_toggle', 'yes' );
-			delete_option( 'woocommerce_ulx_test_gateway_settings' );
-			update_option( 'ulx_db_migration_version', '1.0.5' );
-		}
-		require_once ULX_PLUGIN_DIR . 'includes/class-ulx-plugin.php';
-		ULX_Plugin::instance();
+/**
+ * Boot the plugin once all plugins are loaded.
+ */
+function ulixsu_init_plugin() {
+	if ( ! ULIXSU_Dependency_Manager::are_dependencies_met() ) {
+		ULIXSU_Dependency_Manager::init_notices();
+		return;
 	}
+	if ( '1.0.5' !== get_option( 'ulixsu_db_migration_version' ) ) {
+		update_option( 'ulixsu_accept_manual_renewals', 'yes' );
+		update_option( 'ulixsu_allow_switching_variable', 'yes' );
+		update_option( 'ulixsu_allow_switching_grouped', 'yes' );
+		update_option( 'ulixsu_enable_early_renewal', 'yes' );
+		update_option( 'ulixsu_enable_auto_renewal_toggle', 'yes' );
+		delete_option( 'woocommerce_ulixsu_test_gateway_settings' );
+		update_option( 'ulixsu_db_migration_version', '1.0.5' );
+	}
+	require_once ULIXSU_PLUGIN_DIR . 'includes/class-ulixsu-plugin.php';
+	ULIXSU_Plugin::instance();
 }
-add_action( 'plugins_loaded', 'ulx_init_plugin', 5 );
+add_action( 'plugins_loaded', 'ulixsu_init_plugin', 5 );
 
 add_filter(
 	'plugin_action_links_' . plugin_basename( __FILE__ ),
@@ -112,64 +110,60 @@ add_filter(
 	}
 );
 
-register_activation_hook( __FILE__, 'ulx_activate' );
-register_deactivation_hook( __FILE__, 'ulx_deactivate' );
+register_activation_hook( __FILE__, 'ulixsu_activate' );
+register_deactivation_hook( __FILE__, 'ulixsu_deactivate' );
 
-if ( ! function_exists( 'ulx_activate' ) ) {
-	/**
-	 * Activation.
-	 */
-	function ulx_activate() {
-		update_option( 'ulx_needs_flush', 'yes' );
-		require_once ULX_PLUGIN_DIR . 'includes/class-ulx-retry-table-maker.php';
-		ULX_Retry_Table_Maker::create_table();
-		if ( false === get_option( 'ulx_installed_version' ) ) {
-			add_option( 'ulx_installed_version', ULX_VERSION );
-			add_option( 'ulx_install_date', time() );
-		}
-		$defaults = array(
-			'ulx_add_to_cart_button_text'               => __( 'Sign up now', 'ulixes-subscriptions' ),
-			'ulx_order_button_text'                     => __( 'Sign up now', 'ulixes-subscriptions' ),
-			'ulx_accept_manual_renewals'                => 'yes',
-			'ulx_turn_off_automatic_payments'           => 'no',
-			'ulx_enable_retry'                          => 'no',
-			'ulx_allow_switching_simple'                => 'yes',
-			'ulx_allow_switching_variable'              => 'yes',
-			'ulx_allow_switching_grouped'               => 'yes',
-			'ulx_apportion_recurring_price'             => 'no',
-			'ulx_apportion_sign_up_fee'                 => 'no',
-			'ulx_apportion_length'                      => 'no',
-			'ulx_switch_button_text'                    => __( 'Upgrade or Downgrade', 'ulixes-subscriptions' ),
-			'ulx_sync_payments'                         => 'no',
-			'ulx_prorate_synced_payments'               => 'no',
-			'ulx_days_no_fee'                           => 0,
-			'ulx_enable_early_renewal'                  => 'yes',
-			'ulx_enable_early_renewal_via_modal'        => 'no',
-			'ulx_allow_customer_suspension'             => 0,
-			'ulx_multiple_purchase'                     => 'no',
-			'ulx_drip_downloadable_content'             => 'no',
-			'ulx_enable_auto_renewal_toggle'            => 'yes',
-			'ulx_zero_initial_payment_requires_payment' => 'no',
-			'ulx_cancelled_role'                        => 'customer',
-			'ulx_subscriber_role'                       => 'subscriber',
-			'ulx_allow_switching_downgrade_fee'         => 'no',
-			'ulx_gifting'                               => 'no',
-			'ulx_renewal_order_number_prefix'           => '',
-			'ulx_customer_notifications_offset'         => 3,
-			'ulx_customer_notifications_enabled'        => 'no',
-		);
-		foreach ( $defaults as $key => $value ) {
-			add_option( $key, $value );
-		}
+/**
+ * Activation.
+ */
+function ulixsu_activate() {
+	update_option( 'ulixsu_needs_flush', 'yes' );
+	require_once ULIXSU_PLUGIN_DIR . 'includes/class-ulixsu-retry-table-maker.php';
+	ULIXSU_Retry_Table_Maker::create_table();
+	if ( false === get_option( 'ulixsu_installed_version' ) ) {
+		add_option( 'ulixsu_installed_version', ULIXSU_VERSION );
+		add_option( 'ulixsu_install_date', time() );
+	}
+	$defaults = array(
+		'ulixsu_add_to_cart_button_text'               => __( 'Sign up now', 'ulixes-subscriptions' ),
+		'ulixsu_order_button_text'                     => __( 'Sign up now', 'ulixes-subscriptions' ),
+		'ulixsu_accept_manual_renewals'                => 'yes',
+		'ulixsu_turn_off_automatic_payments'           => 'no',
+		'ulixsu_enable_retry'                          => 'no',
+		'ulixsu_allow_switching_simple'                => 'yes',
+		'ulixsu_allow_switching_variable'              => 'yes',
+		'ulixsu_allow_switching_grouped'               => 'yes',
+		'ulixsu_apportion_recurring_price'             => 'no',
+		'ulixsu_apportion_sign_up_fee'                 => 'no',
+		'ulixsu_apportion_length'                      => 'no',
+		'ulixsu_switch_button_text'                    => __( 'Upgrade or Downgrade', 'ulixes-subscriptions' ),
+		'ulixsu_sync_payments'                         => 'no',
+		'ulixsu_prorate_synced_payments'               => 'no',
+		'ulixsu_days_no_fee'                           => 0,
+		'ulixsu_enable_early_renewal'                  => 'yes',
+		'ulixsu_enable_early_renewal_via_modal'        => 'no',
+		'ulixsu_allow_customer_suspension'             => 0,
+		'ulixsu_multiple_purchase'                     => 'no',
+		'ulixsu_drip_downloadable_content'             => 'no',
+		'ulixsu_enable_auto_renewal_toggle'            => 'yes',
+		'ulixsu_zero_initial_payment_requires_payment' => 'no',
+		'ulixsu_cancelled_role'                        => 'customer',
+		'ulixsu_subscriber_role'                       => 'subscriber',
+		'ulixsu_allow_switching_downgrade_fee'         => 'no',
+		'ulixsu_gifting'                               => 'no',
+		'ulixsu_renewal_order_number_prefix'           => '',
+		'ulixsu_customer_notifications_offset'         => 3,
+		'ulixsu_customer_notifications_enabled'        => 'no',
+	);
+	foreach ( $defaults as $key => $value ) {
+		add_option( $key, $value );
 	}
 }
 
-if ( ! function_exists( 'ulx_deactivate' ) ) {
-	/**
-	 * Deactivation.
-	 */
-	function ulx_deactivate() {
-		wp_clear_scheduled_hook( 'ulx_daily_maintenance' );
-		update_option( 'ulx_needs_flush', 'yes' );
-	}
+/**
+ * Deactivation.
+ */
+function ulixsu_deactivate() {
+	wp_clear_scheduled_hook( 'ulixsu_daily_maintenance' );
+	update_option( 'ulixsu_needs_flush', 'yes' );
 }

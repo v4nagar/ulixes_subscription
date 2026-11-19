@@ -3,7 +3,7 @@
  * My Account -> Subscriptions list template.
  *
  * @package Ulixes_Subscriptions
- * @var ULX_Subscription[] $subscriptions
+ * @var ULIXSU_Subscription[] $subscriptions
  * @var int                $current_page
  * @var int                $max_num_pages
  * @var bool               $paginate
@@ -32,7 +32,7 @@ defined( 'ABSPATH' ) || exit;
 							<a href="<?php echo esc_url( $subscription->get_view_order_url() ); ?>"><strong>#<?php echo esc_html( $subscription->get_order_number() ); ?></strong></a>
 						</td>
 						<td class="subscription-status order-status" data-title="<?php esc_attr_e( 'Status', 'ulixes-subscriptions' ); ?>">
-							<?php echo esc_html( ulx_get_subscription_status_name( $subscription->get_status() ) ); ?>
+							<?php echo esc_html( ulixsu_get_subscription_status_name( $subscription->get_status() ) ); ?>
 						</td>
 						<td class="subscription-next-payment order-date" data-title="<?php esc_attr_e( 'Next payment', 'ulixes-subscriptions' ); ?>">
 							<?php echo esc_html( $subscription->get_date_to_display( 'next_payment' ) ); ?>

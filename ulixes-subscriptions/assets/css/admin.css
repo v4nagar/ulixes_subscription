@@ -17,7 +17,7 @@
 	color: #777;
 }
 
-.ulx-rel-badge {
+.ulixsu-rel-badge {
 	display: inline-block;
 	padding: 2px 8px;
 	border-radius: 3px;
@@ -27,18 +27,18 @@
 	color: #2c3338;
 }
 
-.ulx-rel-parent {
+.ulixsu-rel-parent {
 	background: #dff0d8;
 	color: #3c763d;
 }
 
-.ulx-rel-renewal {
+.ulixsu-rel-renewal {
 	background: #d9edf7;
 	color: #31708f;
 }
 
-.ulx-rel-switch,
-.ulx-rel-resubscribe {
+.ulixsu-rel-switch,
+.ulixsu-rel-resubscribe {
 	background: #fcf8e3;
 	color: #8a6d3b;
 }
@@ -49,77 +49,77 @@
 }
 
 /* Schedule Meta Box (WCS layout parity) */
-.ulx-metabox-schedule {
+.ulixsu-metabox-schedule {
 	padding-top: 4px;
 }
 
-.ulx-schedule-payment-row {
+.ulixsu-schedule-payment-row {
 	display: flex;
 	align-items: center;
 	gap: 6px;
 	margin-bottom: 12px;
 }
 
-.ulx-schedule-payment-row .ulx-payment-label {
+.ulixsu-schedule-payment-row .ulixsu-payment-label {
 	margin-right: 2px;
 	white-space: nowrap;
 }
 
-.ulx-schedule-payment-row .ulx-billing-interval {
+.ulixsu-schedule-payment-row .ulixsu-billing-interval {
 	width: 96px;
 	max-width: 45%;
 }
 
-.ulx-schedule-payment-row .ulx-billing-period {
+.ulixsu-schedule-payment-row .ulixsu-billing-period {
 	width: 78px;
 	max-width: 38%;
 }
 
-.ulx-schedule-start-date {
+.ulixsu-schedule-start-date {
 	margin: 10px 0 12px;
 	font-size: 13px;
 	color: #3c434a;
 }
 
-.ulx-date-input {
+.ulixsu-date-input {
 	margin-bottom: 12px;
 }
 
-.ulx-date-input > label {
+.ulixsu-date-input > label {
 	display: block;
 	margin-bottom: 4px;
 	font-size: 13px;
 	color: #3c434a;
 }
 
-.ulx-date-time-fields {
+.ulixsu-date-time-fields {
 	display: flex;
 	flex-wrap: wrap;
 	align-items: center;
 	gap: 4px;
 }
 
-.ulx-date-time-fields input.ulx-date-picker {
+.ulixsu-date-time-fields input.ulixsu-date-picker {
 	width: 112px;
 	padding: 3px 8px;
 	font-size: 13px;
 }
 
-.ulx-date-time-fields input.ulx-hour-input,
-.ulx-date-time-fields input.ulx-minute-input {
+.ulixsu-date-time-fields input.ulixsu-hour-input,
+.ulixsu-date-time-fields input.ulixsu-minute-input {
 	width: 56px;
 	padding: 3px 6px;
 	text-align: left;
 	font-size: 13px;
 }
 
-.ulx-date-time-fields .ulx-at,
-.ulx-date-time-fields .ulx-colon {
+.ulixsu-date-time-fields .ulixsu-at,
+.ulixsu-date-time-fields .ulixsu-colon {
 	color: #50575e;
 	font-size: 13px;
 }
 
-.ulx-timezone-info {
+.ulixsu-timezone-info {
 	margin: 12px 0 4px;
 	font-size: 13px;
 	color: #3c434a;
