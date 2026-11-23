@@ -69,10 +69,8 @@ class ULIXSU_Switcher {
 	 * @return array
 	 */
 	public static function add_switch_cart_item_data( $cart_item_data, $product_id, $variation_id ) {
-		// phpcs:disable WordPress.Security.NonceVerification
-		if ( empty( $variation_id ) && ! empty( $_REQUEST['variation_id'] ) ) {
-			$variation_id = absint( $_REQUEST['variation_id'] );
-		}
+		// WooCommerce supplies the validated variation ID to this filter.
+		// Do not read unverified request parameters here.
 		$maybe_parent = wp_get_post_parent_id( $product_id );
 		if ( $maybe_parent > 0 ) {
 			$variation_id = (int) $product_id;
@@ -87,7 +85,7 @@ class ULIXSU_Switcher {
 		$subscription    = $subscription_id ? ulixsu_get_subscription( $subscription_id ) : false;
 		$existing_item   = null;
 
-		if ( $subscription && (int) $subscription->get_user_id() === get_current_user_id() && $item_id ) {
+		if ( $subscription && is_user_logged_in() && (int) $subscription->get_user_id() === get_current_user_id() && $item_id ) {
 			$existing_item = $subscription->get_item( $item_id );
 		} elseif ( is_user_logged_in() && $variation_id > 0 && 'no' !== ulixsu_get_option( 'allow_switching_variable', 'yes' ) ) {
 			$subscription = ulixsu_get_user_subscription_for_product( get_current_user_id(), $product_id, array( 'active', 'on-hold' ) );
@@ -142,7 +140,6 @@ class ULIXSU_Switcher {
 			'next_payment_timestamp' => $subscription->get_time( 'next_payment' ),
 			'upgraded_or_downgraded' => $direction,
 		);
-		// phpcs:enable WordPress.Security.NonceVerification
 		return $cart_item_data;
 	}
 

@@ -157,6 +157,20 @@ class ULIXSU_REST_Subscriptions_Controller {
 	}
 
 	/**
+	 * Avoid exposing private subscription fields to write-only API credentials.
+	 *
+	 * @param ULIXSU_Subscription $sub Subscription.
+	 * @param WP_REST_Request     $request Request.
+	 * @return WP_REST_Response
+	 */
+	protected static function write_response( $sub, $request ) {
+		if ( self::permissions_read( $request ) && wc_rest_check_post_permissions( 'shop_order', 'read', $sub->get_id() ) ) {
+			return rest_ensure_response( self::prepare_subscription_data( $sub ) );
+		}
+		return rest_ensure_response( array( 'id' => $sub->get_id() ) );
+	}
+
+	/**
 	 * Format a subscription for REST response.
 	 *
 	 * @param ULIXSU_Subscription $sub Subscription.
@@ -259,6 +273,16 @@ class ULIXSU_REST_Subscriptions_Controller {
 	 */
 	public static function create_item( $request ) {
 		$parent_id = absint( $request->get_param( 'parent_id' ) );
+		// Creating a subscription must not copy an order the API client cannot read.
+		if ( $parent_id ) {
+			$parent_order = wc_get_order( $parent_id );
+			if ( ! $parent_order ) {
+				return new WP_Error( 'ulixsu_rest_invalid_parent', __( 'Invalid parent order.', 'ulixes-subscriptions' ), array( 'status' => 404 ) );
+			}
+			if ( ! wc_rest_check_post_permissions( 'shop_order', 'read', $parent_id ) ) {
+				return new WP_Error( 'ulixsu_rest_parent_forbidden', __( 'You cannot read the parent order.', 'ulixes-subscriptions' ), array( 'status' => 403 ) );
+			}
+		}
 		$sub       = ulixsu_create_subscription(
 			array(
 				'status'           => $request->get_param( 'status' ) ?: 'pending',
@@ -296,7 +320,7 @@ class ULIXSU_REST_Subscriptions_Controller {
 			}
 		}
 
-		return rest_ensure_response( self::prepare_subscription_data( $sub ) );
+		return self::write_response( $sub, $request );
 	}
 
 	/**
@@ -311,7 +335,7 @@ class ULIXSU_REST_Subscriptions_Controller {
 			return new WP_Error( 'ulixsu_rest_invalid_id', __( 'Invalid subscription ID.', 'ulixes-subscriptions' ), array( 'status' => 404 ) );
 		}
 		self::apply_request_fields( $sub, $request );
-		return rest_ensure_response( self::prepare_subscription_data( $sub ) );
+		return self::write_response( $sub, $request );
 	}
 
 	/**
@@ -377,8 +401,9 @@ class ULIXSU_REST_Subscriptions_Controller {
 		if ( ! $sub ) {
 			return new WP_Error( 'ulixsu_rest_invalid_id', __( 'Invalid subscription ID.', 'ulixes-subscriptions' ), array( 'status' => 404 ) );
 		}
-		$data  = self::prepare_subscription_data( $sub );
-		$force = (bool) $request->get_param( 'force' );
+		$can_read = self::permissions_read( $request ) && wc_rest_check_post_permissions( 'shop_order', 'read', $sub->get_id() );
+		$data     = $can_read ? self::prepare_subscription_data( $sub ) : array( 'id' => $sub->get_id() );
+		$force    = (bool) $request->get_param( 'force' );
 		$sub->delete( $force );
 		return rest_ensure_response( $data );
 	}

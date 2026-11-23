@@ -21,6 +21,10 @@ function ulixsu_can_item_be_switched_by_user( $subscription, $item ) {
 	if ( ! $subscription || ! ( $item instanceof WC_Order_Item_Product ) ) {
 		return false;
 	}
+	// A guest customer ID (0) is not proof of ownership.
+	if ( ! is_user_logged_in() || ! $subscription->get_user_id() || (int) $subscription->get_user_id() !== get_current_user_id() ) {
+		return false;
+	}
 	if ( ! $subscription->has_status( array( 'active', 'on-hold' ) ) ) {
 		return false;
 	}
